@@ -143,3 +143,7 @@ footer.foot{text-align:center;color:var(--muted);font-size:.82rem;padding:8px 16
   .card{border:none;padding:0}
   .bigstats>div{background:#fff;color:#000;border:1px solid #999}
 }
+
+/* richieste di passaggio */
+.pax .row button, .pax .row .btn-link { white-space: nowrap; }
+.wa-card .btn-ok { text-decoration: none; }

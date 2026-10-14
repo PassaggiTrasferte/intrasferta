@@ -20,6 +20,28 @@
   const sportOf = (team) => SPORTS[team?.sport] || SPORTS.altro;
   const fmt = (n, d = 0) => Number(n || 0).toLocaleString("it-IT", { minimumFractionDigits: d, maximumFractionDigits: d });
 
+  const firstName = (s) => String(s || "").split(",")[0].trim().split(/\s+/)[0] || "";
+  const waNum = (t) => { let d = String(t || "").replace(/[^0-9+]/g, ""); if (d.startsWith("+")) d = d.slice(1); else if (d.startsWith("00")) d = d.slice(2); else if (/^3\d{8,9}$/.test(d)) d = "39" + d; return d.length >= 8 ? d : ""; };
+  const waHref = (phone, text) => { const n = waNum(phone); return "https://wa.me/" + (n || "") + "?text=" + encodeURIComponent(text); };
+  const mapsSearch = (q) => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+  const mapsRoute = (from, to) => "https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=" + encodeURIComponent(from) + "&destination=" + encodeURIComponent(to);
+  const telOk = (t) => !t || waNum(t).length >= 10;
+  async function geocode(q) {
+    const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=it&q=" + encodeURIComponent(q));
+    const j = await r.json(); return j && j[0] ? [Number(j[0].lon), Number(j[0].lat)] : null;
+  }
+  async function estimateKm(from, to) {
+    if (!from || !to) return null;
+    try {
+      const a = await geocode(from); if (!a) return null;
+      await new Promise((res) => setTimeout(res, 1100)); // limite di cortesia del servizio di geocodifica
+      const b = await geocode(to); if (!b) return null;
+      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${a[0]},${a[1]};${b[0]},${b[1]}?overview=false`);
+      const j = await r.json(); const m = j && j.routes && j.routes[0] && j.routes[0].distance;
+      return m ? Math.round(m / 100) / 10 : null;
+    } catch (e) { return null; }
+  }
+
   let toastT;
   function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 3000); }
 
@@ -31,7 +53,10 @@
     convocation_only_admin: "Su questo mezzo i posti li assegna la società.",
     last_admin: "Sei l'unico amministratore: nomina un altro amministratore prima di uscire.",
     event_past: "La trasferta è già passata.",
-    not_authenticated: "Sessione scaduta: accedi di nuovo."
+    not_authenticated: "Sessione scaduta: accedi di nuovo.",
+    request_gone: "Questa richiesta non c'è più.",
+    need_own_ride: "Prima offri il tuo passaggio su questa trasferta, poi premi di nuovo «Lo porto io».",
+    own_ride_full: "La tua auto è piena."
   };
   function errMsg(e) {
     const m = (e && (e.message || e.error_description || e.msg)) || "";
@@ -56,7 +81,7 @@
   const S = {
     session: null, user: null, profile: null,
     teams: [], memberships: [],
-    team: null, me: null, members: [], events: [], rides: [], bookings: [], vehicles: [],
+    team: null, me: null, members: [], events: [], rides: [], bookings: [], vehicles: [], requests: [],
     ui: {}, showPast: false, channel: null, loadedTeam: null, aiPreview: null
   };
   const isAdmin = () => S.me && S.me.role === "admin" && S.me.status === "active";
@@ -78,7 +103,8 @@
     if (S.profile) return S.profile;
     S.user = (await sb.auth.getUser()).data.user;
     const { data } = await sb.from("profiles").select("*").eq("id", S.user.id).maybeSingle();
-    S.profile = data || { id: S.user.id, display_name: "" };
+    S.profile = data || { id: S.user.id, display_name: "", phone: "" };
+    if (S.profile.phone == null) S.profile.phone = "";
     return S.profile;
   }
 
@@ -112,6 +138,8 @@
       <h1>Come ti chiami?</h1>
       <form class="card form" data-form="profile-name">
         <label class="full">Il tuo nome, come ti vedranno gli altri genitori<input name="name" required maxlength="80" placeholder="Es. Carmine, papà di Nicolò" value="${esc(S.profile?.display_name || "")}"></label>
+        <label class="full">Il tuo cellulare (per gli avvisi WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="333 1234567" value="${esc(S.profile?.phone || "")}"></label>
+        <p class="full small muted" style="margin:0">Il numero lo vedono solo i genitori delle tue squadre: serve per avvisare con un tocco chi guida o chi ha prenotato.</p>
         <div class="actions"><button class="btn-primary" type="submit">Continua</button></div>
       </form></div>`;
   }
@@ -236,6 +264,8 @@
     $app.innerHTML = topBar({ title: "Profilo", back: "#/" }) + `<div class="wrap narrow">
       <form class="card form" data-form="profile-name">
         <label class="full">Il tuo nome<input name="name" required maxlength="80" value="${esc(S.profile.display_name)}"></label>
+        <label class="full">Cellulare (per WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="333 1234567" value="${esc(S.profile.phone || "")}"></label>
+        <div class="full small muted">Il numero è visibile solo ai genitori delle tue squadre.</div>
         <div class="full small muted">Accesso con: ${esc(S.user.email || "")}</div>
         <div class="actions"><button class="btn-primary" type="submit">Salva</button></div>
       </form>
@@ -255,17 +285,18 @@
     if (t.error) throw t.error;
     S.team = t.data; S.me = me.data;
     if (!S.team) return false;
-    const [mem, ev, ri, bo, ve] = await Promise.all([
+    const [mem, ev, ri, bo, ve, rq] = await Promise.all([
       sb.from("team_members").select("*").eq("team_id", id),
       sb.from("events").select("*").eq("team_id", id).order("starts_at"),
       sb.from("rides").select("*").eq("team_id", id).order("created_at"),
       sb.from("bookings").select("*").eq("team_id", id).order("created_at"),
-      sb.from("vehicles").select("*").eq("team_id", id).order("created_at")
+      sb.from("vehicles").select("*").eq("team_id", id).order("created_at"),
+      sb.from("ride_requests").select("*").eq("team_id", id).order("created_at")
     ]);
     const memberIds = (mem.data || []).map((m) => m.user_id);
-    const prof = memberIds.length ? (await sb.from("profiles").select("id,display_name").in("id", memberIds)).data || [] : [];
-    S.members = (mem.data || []).map((m) => ({ ...m, name: (prof.find((p) => p.id === m.user_id) || {}).display_name || "Genitore" }));
-    S.events = ev.data || []; S.rides = ri.data || []; S.bookings = bo.data || []; S.vehicles = ve.data || [];
+    const prof = memberIds.length ? (await sb.from("profiles").select("id,display_name,phone").in("id", memberIds)).data || [] : [];
+    S.members = (mem.data || []).map((m) => { const pr = prof.find((p) => p.id === m.user_id) || {}; return { ...m, name: pr.display_name || "Genitore", phone: pr.phone || "" }; });
+    S.events = ev.data || []; S.rides = ri.data || []; S.bookings = bo.data || []; S.vehicles = ve.data || []; S.requests = rq.data || [];
     return true;
   }
 
@@ -278,9 +309,15 @@
       .on("postgres_changes", { event: "*", schema: "public", table: "rides", filter: "team_id=eq." + id }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "bookings", filter: "team_id=eq." + id }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: "team_id=eq." + id }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "ride_requests", filter: "team_id=eq." + id }, refresh)
       .subscribe();
   }
-  const anyFormOpen = () => !!(S.ui.offer || S.ui.book || S.ui.club || S.ui.editEvent || S.ui.newEvent);
+  const anyFormOpen = () => !!(S.ui.offer || S.ui.book || S.ui.club || S.ui.editEvent || S.ui.newEvent || S.ui.req);
+  const member = (uid) => S.members.find((m) => m.user_id === uid) || {};
+  const canAddEvents = () => isAdmin();
+  const canEditEvent = () => isAdmin();
+  const tripLabel = (e) => { const p = dateParts(e.starts_at); return { trip: e.title, d: `${p.dow} ${p.day} ${p.mon}` }; };
+  const DIR = { ar: "andata e ritorno", andata: "solo andata", ritorno: "solo ritorno" };
 
   let currentTab = "trasferte";
   async function viewTeam(id, tab) {
@@ -311,9 +348,19 @@
     const head = topBar({ title: t.name, sub: `${sportOf(t).label}${t.category ? " · " + t.category : ""} · ${t.season}`, back: "#/", tabs, active: currentTab, teamId: t.id });
     const body = { trasferte: tabTrips, membri: tabMembers, invita: tabInvite, mezzi: tabVehicles, report: tabReport, impostazioni: tabSettings }[currentTab]();
     const y = window.scrollY;
-    $app.innerHTML = head + `<div class="wrap">${t.plan === "beta" && isAdmin() && currentTab === "trasferte" ? `<div class="notice small">Versione beta: tutte le funzioni Premium sono attive gratuitamente.</div>` : ""}${body}</div>` + footer();
+    $app.innerHTML = head + `<div class="wrap">${waPanel()}${t.plan === "beta" && isAdmin() && currentTab === "trasferte" ? `<div class="notice small">Versione beta: tutte le funzioni Premium sono attive gratuitamente.</div>` : ""}${body}</div>` + footer();
     window.scrollTo(0, y);
     if (currentTab === "invita") drawQR();
+  }
+
+  // ----- avviso WhatsApp dopo un'azione -----
+  function waPanel() {
+    const list = S.ui.wa; if (!list || !list.length) return "";
+    return `<div class="card wa-card" style="border:2px solid #25D366">
+      <div class="label">📲 Avvisa su WhatsApp</div>
+      ${list.map((m) => `<div class="stack" style="gap:6px"><div class="small">${esc(m.text)}</div>
+        <div class="row"><a class="btn btn-ok" target="_blank" rel="noopener" href="${esc(waHref(m.phone, m.text))}">Scrivi a ${esc(m.to)}</a>${waNum(m.phone) ? "" : `<span class="small muted">numero non indicato: scegli tu il contatto in WhatsApp</span>`}</div></div>`).join("")}
+      <div><button class="btn-link" data-act="wa-close">Chiudi</button></div></div>`;
   }
 
   // ----- tab trasferte -----
@@ -331,9 +378,9 @@
     const past = S.events.filter((e) => new Date(e.starts_at).getTime() < cut).reverse();
     const admin = isAdmin();
     return `
-      ${admin ? `<div class="row noprint">
+      ${canAddEvents() ? `<div class="row noprint">
         ${S.ui.newEvent ? "" : `<button class="btn-primary" data-act="new-event">+ Aggiungi trasferta</button>`}
-        ${premium() ? `<button class="btn-ghost" data-act="ai-open">Importa calendario con l'AI</button>` : ""}
+        ${admin && premium() ? `<button class="btn-ghost" data-act="ai-open">Importa calendario con l'AI</button>` : ""}
       </div>` : ""}
       ${S.ui.newEvent ? eventForm(null, L) : ""}
       ${S.ui.ai ? aiPanel() : ""}
@@ -368,27 +415,31 @@
     const chips = rides.length
       ? `<span class="chip">${rides.length} ${rides.length === 1 ? "mezzo" : "mezzi"}</span><span class="chip ${free ? "ok" : "warn"}">${free ? free + (free === 1 ? " posto libero" : " posti liberi") : "Tutto pieno"}</span>`
       : `<span class="chip warn">Nessuna auto ancora</span>`;
+    const reqs = S.requests.filter((q) => q.event_id === e.id);
     const confirming = S.ui.confirm === "event:" + e.id;
     return `<article class="trip ${isPast ? "past" : ""}">
       <div class="stub"><span class="dow">${p.dow}</span><span class="day">${p.day}</span><span class="mon">${p.mon}</span><span class="time">${p.time}</span></div>
       <div class="tbody">
         <div class="between" style="align-items:start">
           <div style="min-width:0"><h2>${esc(e.title)}</h2>
-            ${e.place ? `<div class="meta">${esc(e.place)}</div>` : ""}
+            ${e.place ? `<div class="meta">${esc(e.place)} · <a href="${esc(mapsSearch(e.place))}" target="_blank" rel="noopener">apri in Maps</a></div>` : ""}
             ${e.notes ? `<div class="meta">${esc(e.notes)}</div>` : ""}
             ${e.km_round_trip ? `<div class="meta">${fmt(e.km_round_trip)} km andata e ritorno</div>` : ""}
           </div>
-          <div class="row">${chips}</div>
+          <div class="row">${chips}${reqs.length ? `<span class="chip warn">${reqs.length === 1 ? "1 cerca un passaggio" : reqs.length + " cercano un passaggio"}</span>` : ""}</div>
         </div>
         ${!isPast && missing.length && rides.length ? `<div class="missing"><b>Senza posto (${missing.length}):</b> ${missing.map((a) => esc(a.name)).join(", ")}</div>` : ""}
         ${rides.map((r) => rideBlock(r, e, isPast)).join("")}
+        ${!isPast && reqs.length ? reqBox(e, reqs) : ""}
         ${!isPast ? `<div class="row noprint">
-          ${S.ui.offer === e.id ? "" : `<button class="btn-ghost" data-act="offer" data-id="${e.id}">Offro un passaggio</button>`}
+          ${S.ui.offer === e.id ? "" : `<button class="btn-ghost" data-act="offer" data-id="${e.id}">🚗 Offro un passaggio</button>`}
+          ${S.ui.req === e.id ? "" : `<button class="btn-ghost" data-act="req" data-id="${e.id}">🙋 Cerco un passaggio</button>`}
           ${admin && S.ui.club !== e.id ? `<button class="btn-ghost" data-act="club" data-id="${e.id}">+ Mezzo della società</button>` : ""}
         </div>` : ""}
         ${S.ui.offer === e.id ? offerForm(e) : ""}
+        ${S.ui.req === e.id ? reqForm(e) : ""}
         ${S.ui.club === e.id ? clubForm(e) : ""}
-        ${admin ? `<div class="row noprint">${confirming
+        ${canEditEvent(e) ? `<div class="row noprint">${confirming
           ? `<span class="confirm">Eliminare la trasferta con tutti i passaggi? <button class="btn-link danger" data-act="del-event" data-id="${e.id}">Sì, elimina</button><button class="btn-link" data-act="cancel">Annulla</button></span>`
           : `<button class="btn-link" data-act="edit-event" data-id="${e.id}">Modifica</button><button class="btn-link" data-act="ask-del-event" data-id="${e.id}">Elimina</button>`}</div>` : ""}
       </div></article>`;
@@ -408,7 +459,9 @@
       <div class="between" style="align-items:baseline">
         <div style="min-width:0"><span class="driver">${who}</span>
           <div class="meta">Parte da ${esc(r.depart_from || "—")}${r.depart_time ? ` alle <b>${esc(r.depart_time)}</b>` : ""} · ${r.return_trip ? "fa anche il ritorno" : "solo andata"}${r.assignment === "convocation" ? " · posti assegnati dalla società" : ""}</div>
+          ${r.km_to_venue ? `<div class="meta">≈ ${fmt(r.km_to_venue)} km fino a destinazione (percorso più veloce)${r.depart_from && e.place ? ` · <a href="${esc(mapsRoute(r.depart_from, e.place))}" target="_blank" rel="noopener">percorso in Maps</a>` : ""}</div>` : r.depart_from && e.place ? `<div class="meta"><a href="${esc(mapsRoute(r.depart_from, e.place))}" target="_blank" rel="noopener">percorso in Maps</a></div>` : ""}
           ${r.notes ? `<div class="meta">${esc(r.notes)}</div>` : ""}
+          ${!mine && driverPhone(r) ? `<div class="meta"><a href="tel:${esc(waNum(driverPhone(r)) ? "+" + waNum(driverPhone(r)) : driverPhone(r))}">📞 ${esc(driverPhone(r))}</a></div>` : ""}
         </div>
         <div class="seats" aria-label="${free} posti liberi su ${r.seats}">${dots}<span class="chip ${free ? "ok" : "warn"}">${free ? free + " liberi" : "Pieno"}</span></div>
       </div>
@@ -423,12 +476,37 @@
     </div>`;
   }
 
+  const driverPhone = (r) => r.driver_phone || (r.kind === "parent" ? member(r.created_by).phone : "") || "";
+
+  function reqBox(e, reqs) {
+    return `<div class="ride" style="border-style:dashed">
+      <div class="label">Cercano un passaggio</div>
+      <ul class="pax">${reqs.map((q) => {
+        const mineQ = q.requested_by === S.user.id;
+        return `<li><span><b>${esc(q.athlete_name)}</b> <small>· ${esc(DIR[q.direction] || "")}${q.depart_from ? " · da " + esc(q.depart_from) : ""} · chiesto da ${esc(firstName(member(q.requested_by).name))}</small></span>
+          <span class="row">${!mineQ ? `<button class="btn-ok" data-act="take" data-id="${q.id}">Lo porto io</button>` : ""}${mineQ || isAdmin() ? `<button class="btn-link danger" data-act="del-req" data-id="${q.id}">Ritira richiesta</button>` : ""}</span></li>`;
+      }).join("")}</ul></div>`;
+  }
+
+  function reqForm(e) {
+    const booked = new Set(S.bookings.filter((b) => b.event_id === e.id).map((b) => b.athlete_name.toLowerCase()));
+    const asked = new Set(S.requests.filter((q) => q.event_id === e.id).map((q) => q.athlete_name.toLowerCase()));
+    const names = myAthletes().filter((n) => !booked.has(n.toLowerCase()) && !asked.has(n.toLowerCase()));
+    return `<form class="form" data-form="req" data-id="${e.id}" style="border-top:1px solid var(--line);padding-top:12px">
+      <label>Atleta<input name="athlete" required maxlength="60" list="dlq-${e.id}" value="${esc(names.length === 1 ? names[0] : "")}" placeholder="Nome dell'atleta"><datalist id="dlq-${e.id}">${names.map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>
+      <label>Serve per<select name="direction"><option value="ar">andata e ritorno</option><option value="andata">solo andata</option><option value="ritorno">solo ritorno</option></select></label>
+      <label class="full">Da dove parte<input name="from" maxlength="120" placeholder="Es. Buccinasco"></label>
+      <div class="actions"><button class="btn-primary" type="submit">Pubblica la richiesta</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
+    </form>`;
+  }
+
   function offerForm(e) {
     return `<form class="form" data-form="offer" data-id="${e.id}" style="border-top:1px solid var(--line);padding-top:12px">
       <label>Posti liberi<select name="seats">${[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `<option ${n === 3 ? "selected" : ""}>${n}</option>`).join("")}</select></label>
       <label>Orario partenza<input name="time" type="time"></label>
       <label class="full">Punto di partenza<input name="from" required maxlength="120" placeholder="Es. parcheggio del palazzetto"></label>
       <label class="full">Note<input name="notes" maxlength="200" placeholder="Es. posso fare una tappa lungo la strada"></label>
+      <label class="full">Telefono (per WhatsApp, visibile ai genitori della squadra)<input name="phone" type="tel" inputmode="tel" maxlength="20" placeholder="333 1234567" value="${esc(S.profile.phone || "")}"></label>
       <label class="full check"><input name="back" type="checkbox" checked> Faccio anche il ritorno</label>
       <div class="actions"><button class="btn-primary" type="submit">Pubblica il passaggio</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
     </form>`;
@@ -630,7 +708,7 @@
 
   // ---------- azioni ----------
   async function reloadTeam() { await loadTeam(S.team.id); renderTeam(); }
-  const closeForms = () => { S.ui.offer = S.ui.book = S.ui.club = S.ui.editEvent = S.ui.newEvent = S.ui.confirm = null; };
+  const closeForms = () => { S.ui.offer = S.ui.book = S.ui.club = S.ui.editEvent = S.ui.newEvent = S.ui.confirm = S.ui.req = null; };
 
   document.addEventListener("click", async (ev) => {
     const b = ev.target.closest("[data-act]"); if (!b) return;
@@ -647,6 +725,8 @@
       "offer": () => { closeForms(); S.ui.offer = id; renderTeam(); },
       "club": () => { closeForms(); S.ui.club = id; renderTeam(); },
       "book": () => { closeForms(); S.ui.book = id; renderTeam(); },
+      "req": () => { closeForms(); S.ui.req = id; renderTeam(); },
+      "wa-close": () => { S.ui.wa = null; renderTeam(); },
       "toggle-past": () => { S.showPast = !S.showPast; renderTeam(); },
       "ai-open": () => { S.ui.ai = true; S.aiPreview = null; renderTeam(); },
       "ai-close": () => { S.ui.ai = false; S.aiPreview = null; renderTeam(); },
@@ -662,8 +742,29 @@
     b.disabled = true;
     try {
       if (act === "logout") { await sb.auth.signOut(); S.profile = null; location.hash = "#/"; return; }
-      if (act === "unbook") { const { error } = await sb.from("bookings").delete().eq("id", id); if (error) throw error; toast("Posto liberato"); }
-      if (act === "del-ride") { const { error } = await sb.from("rides").delete().eq("id", id); if (error) throw error; toast("Mezzo ritirato"); }
+      S.ui.wa = null;
+      if (act === "unbook") {
+        const bk = S.bookings.find((x) => x.id === id), r = bk && S.rides.find((x) => x.id === bk.ride_id), e = r && S.events.find((x) => x.id === r.event_id);
+        const { error } = await sb.from("bookings").delete().eq("id", id); if (error) throw error; toast("Posto liberato");
+        if (bk && r && e && r.kind === "parent") {
+          const L = tripLabel(e);
+          if (r.created_by !== S.user.id) S.ui.wa = [{ to: firstName(r.driver_name), phone: driverPhone(r), text: `Ciao ${firstName(r.driver_name)}, ho liberato il posto di ${bk.athlete_name} nella tua auto per ${L.trip} (${L.d}).` }];
+          else if (bk.booked_by !== S.user.id) { const m = member(bk.booked_by); S.ui.wa = [{ to: firstName(m.name), phone: m.phone, text: `Ciao ${firstName(m.name)}, purtroppo ho dovuto liberare il posto di ${bk.athlete_name} nella mia auto per ${L.trip} (${L.d}).` }]; }
+        }
+      }
+      if (act === "del-ride") {
+        const r = S.rides.find((x) => x.id === id), e = r && S.events.find((x) => x.id === r.event_id);
+        const pax = S.bookings.filter((x) => x.ride_id === id && x.booked_by !== S.user.id);
+        const { error } = await sb.from("rides").delete().eq("id", id); if (error) throw error; toast("Mezzo ritirato");
+        if (e && pax.length) { const L = tripLabel(e); S.ui.wa = pax.map((bk) => { const m = member(bk.booked_by); return { to: firstName(m.name), phone: m.phone, text: `Ciao ${firstName(m.name)}, purtroppo non posso più accompagnare ${bk.athlete_name} a ${L.trip} (${L.d}): il posto è di nuovo libero su InTrasferta.` }; }); }
+      }
+      if (act === "take") {
+        const q = S.requests.find((x) => x.id === id), e = q && S.events.find((x) => x.id === q.event_id);
+        const { data, error } = await sb.rpc("take_request", { p_request: id }); if (error) throw error; toast("Atleta aggiunto alla tua auto");
+        const r = data && S.rides.find((x) => x.id === data.ride_id);
+        if (q && e) { const L = tripLabel(e), m = member(q.requested_by); S.ui.wa = [{ to: firstName(m.name), phone: m.phone, text: `Ciao ${firstName(m.name)}, porto io ${q.athlete_name} a ${L.trip} (${L.d}). Parto da ${r ? r.depart_from || "—" : "—"}${r && r.depart_time ? " alle " + r.depart_time : ""}.` }]; }
+      }
+      if (act === "del-req") { const { error } = await sb.from("ride_requests").delete().eq("id", id); if (error) throw error; toast("Richiesta ritirata"); }
       if (act === "del-event") { const { error } = await sb.from("events").delete().eq("id", id); if (error) throw error; toast("Trasferta eliminata"); }
       if (act === "approve") { const { error } = await sb.from("team_members").update({ status: "active" }).eq("team_id", S.team.id).eq("user_id", id); if (error) throw error; toast("Genitore accettato"); }
       if (act === "reject" || act === "remove-member") { const { error } = await sb.from("team_members").delete().eq("team_id", S.team.id).eq("user_id", id); if (error) throw error; toast(act === "reject" ? "Richiesta rifiutata" : "Membro rimosso"); }
@@ -707,8 +808,10 @@
         S.ui.loginEmail = null; return;
       }
       if (kind === "profile-name") {
-        const { error } = await sb.from("profiles").update({ display_name: v("name") }).eq("id", S.user.id); if (error) throw error;
-        S.profile.display_name = v("name"); toast("Salvato"); route(); return;
+        if (!telOk(v("phone"))) { toast("Scrivi un numero di cellulare valido"); if (btn) btn.disabled = false; return; }
+        const upd = { display_name: v("name") }; if (fd.has("phone")) upd.phone = v("phone");
+        const { error } = await sb.from("profiles").update(upd).eq("id", S.user.id); if (error) throw error;
+        Object.assign(S.profile, upd); toast("Salvato"); route(); return;
       }
       if (kind === "code-join") { S.ui.codeOpen = false; location.hash = "#/join/" + encodeURIComponent(v("code").toUpperCase()); return; }
       if (kind === "join") {
@@ -729,16 +832,28 @@
         const { error } = await q; if (error) throw error; toast(f.dataset.id ? "Trasferta aggiornata" : "Trasferta aggiunta");
       }
       if (kind === "offer") {
-        const { error } = await sb.from("rides").insert({ event_id: f.dataset.id, team_id: S.team.id, kind: "parent", driver_user_id: S.user.id, driver_name: S.profile.display_name, seats: Number(v("seats")), depart_time: v("time"), depart_from: v("from"), notes: v("notes"), return_trip: fd.get("back") === "on", created_by: S.user.id });
+        if (!telOk(v("phone"))) { toast("Scrivi un numero di cellulare valido"); if (btn) btn.disabled = false; return; }
+        const { data: nr, error } = await sb.from("rides").insert({ event_id: f.dataset.id, team_id: S.team.id, kind: "parent", driver_user_id: S.user.id, driver_name: S.profile.display_name, driver_phone: v("phone"), seats: Number(v("seats")), depart_time: v("time"), depart_from: v("from"), notes: v("notes"), return_trip: fd.get("back") === "on", created_by: S.user.id }).select("id").single();
         if (error) throw error; toast("Passaggio pubblicato");
+        if (v("phone") && !S.profile.phone) { S.profile.phone = v("phone"); sb.from("profiles").update({ phone: v("phone") }).eq("id", S.user.id).then(() => {}); }
+        const ev = S.events.find((x) => x.id === f.dataset.id);
+        if (nr && ev && ev.place && v("from")) estimateKm(v("from"), ev.place).then(async (km) => { if (km != null) { await sb.rpc("set_ride_km", { p_ride: nr.id, p_km: km }); if (S.team && !anyFormOpen()) reloadTeam(); } });
+      }
+      if (kind === "req") {
+        const { error } = await sb.from("ride_requests").insert({ event_id: f.dataset.id, team_id: S.team.id, athlete_name: v("athlete"), depart_from: v("from"), direction: v("direction") || "ar", requested_by: S.user.id });
+        if (error) { if (/duplicate|unique/i.test(error.message || "")) { toast("Per questo atleta c'è già una richiesta"); if (btn) btn.disabled = false; return; } throw error; }
+        toast("Richiesta pubblicata");
       }
       if (kind === "club") {
         const { error } = await sb.from("rides").insert({ event_id: f.dataset.id, team_id: S.team.id, kind: "club", vehicle_id: v("vehicle"), driver_name: v("driver"), seats: Number(v("seats")), depart_time: v("time"), depart_from: v("from"), return_trip: fd.get("back") === "on", assignment: v("assignment"), created_by: S.user.id });
         if (error) throw error; toast("Mezzo aggiunto");
       }
       if (kind === "book") {
+        S.ui.wa = null;
         const { error } = await sb.rpc("book_seat", { p_ride: f.dataset.id, p_athlete: v("athlete"), p_pickup: v("pickup") });
         if (error) throw error; toast("Posto confermato");
+        const r = S.rides.find((x) => x.id === f.dataset.id), e = r && S.events.find((x) => x.id === r.event_id);
+        if (r && e && r.kind === "parent" && r.created_by !== S.user.id) { const L = tripLabel(e); S.ui.wa = [{ to: firstName(r.driver_name), phone: driverPhone(r), text: `Ciao ${firstName(r.driver_name)}, ho prenotato un posto per ${v("athlete")} nella tua auto per ${L.trip} (${L.d}).${v("pickup") ? " Sale a " + v("pickup") + "." : ""} Grazie!` }]; }
       }
       if (kind === "my-athletes") { const { error } = await sb.from("team_members").update({ athletes: v("athletes") }).eq("team_id", S.team.id).eq("user_id", S.user.id); if (error) throw error; toast("Salvato"); }
       if (kind === "vehicle") { const { error } = await sb.from("vehicles").insert({ team_id: S.team.id, name: v("name"), seats: Number(v("seats")) }); if (error) throw error; toast("Mezzo aggiunto"); }
