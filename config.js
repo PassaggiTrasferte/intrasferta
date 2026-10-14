@@ -9,7 +9,7 @@ window.INTRASFERTA_CONFIG = {
   SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1zaWl2eXNpYml4aWxncGp0aXVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5NzA3MTcsImV4cCI6MjEwNzU0NjcxN30.g81O3JsBMjNYmGFhyCqRTm_MPOY5HzsT2og7bCtomZo",
 
   // true dopo aver pubblicato la funzione "import-calendar" (vedi GUIDA.md)
-  AI_IMPORT_ENABLED: false,
+  AI_IMPORT_ENABLED: true,
 
   // Testo mostrato nei piè di pagina e nei messaggi di invito
   APP_NAME: "InTrasferta",
