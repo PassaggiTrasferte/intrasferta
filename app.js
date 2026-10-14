@@ -505,24 +505,22 @@
 
   // ----- sponsor -----
   const logoUrl = (path) => path ? CFG.SUPABASE_URL + "/storage/v1/object/public/sponsor-logos/" + path.split("/").map(encodeURIComponent).join("/") : "";
-  function sponsorStrip() {
-    const L = S.sponsors || []; if (!L.length) return "";
-    return `<div class="sponsors noprint"><div class="label">Con il supporto di</div><div class="sp-row">${L.map((sp) => {
-      const inner = `${sp.logo_path ? `<img src="${esc(logoUrl(sp.logo_path))}" alt="${esc(sp.name)}" loading="lazy">` : `<b>${esc(sp.name)}</b>`}${sp.message ? `<span>${esc(sp.message)}</span>` : ""}`;
-      return sp.link_url ? `<a class="sp" href="${esc(sp.link_url)}" target="_blank" rel="noopener sponsored" data-sp="${sp.id}">${inner}</a>` : `<div class="sp">${inner}</div>`;
-    }).join("")}</div></div>`;
-  }
+  const isVideo = (sp) => sp && (sp.media_type === "video" || /\.(mp4|webm|mov)$/i.test(sp.logo_path || ""));
+  const spSecs = (sp) => Math.min(60, Math.max(3, Number(sp?.seconds) || 6));
+  // banner orizzontale (3:1) con immagine o video, a rotazione: solo nella pagina Trasferte
   function sponsorBanner() {
     const L = S.sponsors || []; if (!L.length) return "";
     const slide = (sp, i) => {
-      const inner = `${sp.logo_path ? `<img src="${esc(logoUrl(sp.logo_path))}" alt="" loading="lazy">` : `<div class="avatar">${esc(initials(sp.name))}</div>`}
-        <div class="sp-txt"><b>${esc(sp.name)}</b>${sp.message ? `<span>${esc(sp.message)}</span>` : ""}</div>${sp.link_url ? `<span class="sp-go" aria-hidden="true">›</span>` : ""}`;
+      const media = !sp.logo_path ? `<div class="sp-fallback"><b>${esc(sp.name)}</b>${sp.message ? `<span>${esc(sp.message)}</span>` : ""}</div>`
+        : isVideo(sp) ? `<video src="${esc(logoUrl(sp.logo_path))}" muted playsinline loop preload="metadata" aria-label="${esc(sp.name)}"></video>`
+        : `<img src="${esc(logoUrl(sp.logo_path))}" alt="${esc(sp.name)}${sp.message ? " – " + esc(sp.message) : ""}" ${i === 0 ? "" : `loading="lazy"`}>`;
+      const inner = media + (sp.logo_path && sp.message ? `<div class="sp-cap">${esc(sp.message)}</div>` : "");
       return sp.link_url ? `<a class="sp-slide${i === 0 ? " on" : ""}" href="${esc(sp.link_url)}" target="_blank" rel="noopener sponsored" data-sp="${sp.id}" data-i="${i}">${inner}</a>`
         : `<div class="sp-slide${i === 0 ? " on" : ""}" data-sp-id="${sp.id}" data-i="${i}">${inner}</div>`;
     };
     return `<section class="sp-banner noprint" aria-label="Sponsor" aria-roledescription="carosello">
-      <div class="sp-tag">Sponsor</div>
       <div class="sp-slides">${L.map(slide).join("")}</div>
+      <div class="sp-tag">Sponsor</div>
       ${L.length > 1 ? `<div class="sp-dots">${L.map((sp, i) => `<button type="button" class="${i === 0 ? "on" : ""}" data-act="sp-goto" data-v="${i}" aria-label="Sponsor ${i + 1} di ${L.length}"></button>`).join("")}</div>` : ""}
     </section>`;
   }
@@ -531,15 +529,29 @@
     const el = document.querySelector(".sp-banner"); if (!el) return;
     const slides = el.querySelectorAll(".sp-slide"), dots = el.querySelectorAll(".sp-dots button");
     if (!slides.length) return; i = ((i % slides.length) + slides.length) % slides.length;
-    slides.forEach((s, k) => s.classList.toggle("on", k === i)); dots.forEach((d, k) => d.classList.toggle("on", k === i));
+    slides.forEach((s, k) => {
+      s.classList.toggle("on", k === i);
+      const v = s.querySelector("video");
+      if (v) { if (k === i) { try { v.currentTime = 0; } catch (e) {} const p = v.play(); if (p && p.catch) p.catch(() => {}); } else v.pause(); }
+    });
+    dots.forEach((d, k) => d.classList.toggle("on", k === i));
     el.dataset.cur = i; const sp = (S.sponsors || [])[i]; if (sp) countView(sp);
+    return i;
   }
   function startSponsorRotation() {
-    clearInterval(spTimer); spTimer = null;
+    clearTimeout(spTimer); spTimer = null;
     const el = document.querySelector(".sp-banner"); if (!el) return;
-    spShow(Number(el.dataset.cur || 0));
+    const cur = spShow(Number(el.dataset.cur || 0));
     const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if ((S.sponsors || []).length > 1 && !reduce) spTimer = setInterval(() => { if (document.hidden) return; const b = document.querySelector(".sp-banner"); if (!b) { clearInterval(spTimer); return; } spShow(Number(b.dataset.cur || 0) + 1); }, 5000);
+    if ((S.sponsors || []).length < 2 || reduce) return;
+    const tick = (i) => {
+      spTimer = setTimeout(() => {
+        const b = document.querySelector(".sp-banner"); if (!b) return;
+        if (document.hidden) { tick(i); return; }
+        tick(spShow(i + 1));
+      }, spSecs((S.sponsors || [])[i]) * 1000);
+    };
+    tick(cur);
   }
   function countView(sp) {
     if (!S.team) return; const k = "sp-v-" + sp.id + "-" + S.team.id; let seen = null; try { seen = sessionStorage.getItem(k); } catch (e) {}
@@ -548,8 +560,7 @@
   function countSponsorViews() {
     if (!S.team || !(S.sponsors || []).length) return;
     if (document.querySelector(".sp-banner")) startSponsorRotation();
-    else clearInterval(spTimer);
-    if (document.querySelector(".sponsors")) S.sponsors.forEach(countView);
+    else { clearTimeout(spTimer); spTimer = null; }
   }
   document.addEventListener("click", (ev) => { const a = ev.target.closest("a[data-sp]"); if (a && S.team) sb.rpc("sponsor_hit", { p_sponsor: a.dataset.sp, p_team: S.team.id, p_kind: "click" }).then(() => {}, () => {}); });
 
@@ -560,8 +571,10 @@
       <label class="full">Nome<input name="name" required minlength="2" maxlength="80" value="${esc(sp?.name || "")}" placeholder="Es. Pizzeria Da Mario"></label>
       <label class="full">Messaggio breve (facoltativo)<input name="message" maxlength="140" value="${esc(sp?.message || "")}" placeholder="Es. Sconto 10% per le famiglie della squadra"></label>
       <label class="full">Sito o pagina (facoltativo)<input name="link" type="url" maxlength="300" value="${esc(sp?.link_url || "")}" placeholder="https://…"></label>
-      <label class="full">Logo (PNG, JPG o WEBP · max 1 MB)<input name="logo" type="file" accept="image/png,image/jpeg,image/webp"></label>
-      ${sp?.logo_path ? `<div class="full small muted">Logo attuale: <img src="${esc(logoUrl(sp.logo_path))}" alt="" style="height:28px;vertical-align:middle"> (carica un file solo per sostituirlo)</div>` : ""}
+      <label class="full">Banner: immagine o video orizzontale<input name="logo" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm"></label>
+      <div class="full small muted">Formato consigliato 3:1, per esempio 1200×400 pixel. Immagine (PNG, JPG, WEBP, GIF) fino a 2 MB, video MP4 o WEBM fino a 8 MB, senza audio (viene riprodotto muto).</div>
+      ${sp?.logo_path ? `<div class="full small muted">Banner attuale: ${isVideo(sp) ? `<video src="${esc(logoUrl(sp.logo_path))}" muted preload="metadata" class="sp-prev"></video>` : `<img src="${esc(logoUrl(sp.logo_path))}" alt="" class="sp-prev">`} (carica un file solo per sostituirlo)</div>` : ""}
+      <label>Secondi di visualizzazione<input name="seconds" type="number" min="3" max="60" step="1" value="${esc(String(sp?.seconds || 6))}"></label>
       ${scope === "platform" ? `<div class="full stack" style="gap:8px"><div class="label">Sport in cui mostrarlo (nessuno selezionato = tutti)</div>
         <div class="pill-group">${SPORT_ORDER.map((k) => `<label class="pill check-pill"><input type="checkbox" name="sports" value="${k}" ${sports.includes(k) ? "checked" : ""}> ${esc(SPORTS[k].label)}</label>`).join("")}</div></div>` : ""}
       <label>Dal (facoltativo)<input name="from" type="date" value="${esc(sp?.starts_on || "")}"></label>
@@ -574,9 +587,9 @@
     const st = (id) => (stats || []).find((x) => x.sponsor_id === id) || { views: 0, clicks: 0, views_30d: 0, clicks_30d: 0 };
     const today = new Date().toISOString().slice(0, 10);
     return list.length ? list.map((sp) => { const x = st(sp.id); const live = sp.active && (!sp.starts_on || sp.starts_on <= today) && (!sp.ends_on || sp.ends_on >= today);
-      return `<div class="member">${sp.logo_path ? `<img src="${esc(logoUrl(sp.logo_path))}" alt="" class="sp-thumb">` : `<div class="avatar">${esc(initials(sp.name))}</div>`}
+      return `<div class="member">${sp.logo_path ? (isVideo(sp) ? `<video src="${esc(logoUrl(sp.logo_path))}" muted preload="metadata" class="sp-thumb"></video>` : `<img src="${esc(logoUrl(sp.logo_path))}" alt="" class="sp-thumb">`) : `<div class="avatar">${esc(initials(sp.name))}</div>`}
         <div style="flex:1;min-width:0"><b>${esc(sp.name)}</b> <span class="chip ${live ? "ok" : ""}">${live ? "visibile" : "non visibile"}</span>
-          <div class="small muted">${scope === "platform" ? (sp.sports && sp.sports.length ? sp.sports.map((k) => esc((SPORTS[k] || SPORTS.altro).label)).join(", ") : "tutti gli sport") + " · " : ""}${sp.starts_on || sp.ends_on ? `dal ${esc(sp.starts_on || "—")} al ${esc(sp.ends_on || "—")} · ` : ""}${fmt(x.views)} visualizzazioni, ${fmt(x.clicks)} clic (30 gg: ${fmt(x.views_30d)} / ${fmt(x.clicks_30d)})</div>
+          <div class="small muted">${scope === "platform" ? (sp.sports && sp.sports.length ? sp.sports.map((k) => esc((SPORTS[k] || SPORTS.altro).label)).join(", ") : "tutti gli sport") + " · " : ""}${sp.starts_on || sp.ends_on ? `dal ${esc(sp.starts_on || "—")} al ${esc(sp.ends_on || "—")} · ` : ""}${isVideo(sp) ? "video" : "immagine"} · ${spSecs(sp)} s ·${fmt(x.views)} visualizzazioni, ${fmt(x.clicks)} clic (30 gg: ${fmt(x.views_30d)} / ${fmt(x.clicks_30d)})</div>
           <div class="row">${S.ui.confirm === "sp:" + sp.id ? `<span class="confirm">Eliminare lo sponsor? <button class="btn-link danger" data-act="sp-del" data-id="${sp.id}" data-scope="${scope}">Sì</button><button class="btn-link" data-act="sp-cancel">No</button></span>` : `<button class="btn-link" data-act="sp-edit" data-id="${sp.id}" data-scope="${scope}">Modifica</button><button class="btn-link danger" data-act="sp-ask-del" data-id="${sp.id}" data-scope="${scope}">Elimina</button>`}</div></div></div>`; }).join("")
       : `<div class="muted">Nessuno sponsor inserito.</div>`;
   }
@@ -587,7 +600,7 @@
   function tabSponsors() {
     if (!S.teamSponsorsLoaded) return `<div class="boot">Carico gli sponsor…</div>`;
     const editing = S.ui.spEdit === "new" ? null : (S.teamSponsors || []).find((x) => x.id === S.ui.spEdit);
-    return `<div class="notice small">Gli sponsor della società compaiono solo ai membri di questa squadra: a rotazione nel banner in cima alle trasferte e in fondo al report. Puoi inserirne fino a 10. Finché ne hai almeno uno attivo, sostituiscono quelli di Carpoolino.</div>
+    return `<div class="notice small">Gli sponsor della società compaiono solo ai membri di questa squadra, a rotazione nel banner in cima alla pagina Trasferte. Puoi inserirne fino a 10. Finché ne hai almeno uno attivo, sostituiscono quelli di Carpoolino.</div>
       ${S.ui.spEdit ? sponsorForm(editing, "team") : `<button class="btn-primary" data-act="sp-new">+ Aggiungi sponsor</button>`}
       <div class="card"><div class="label">Sponsor della squadra · ${(S.teamSponsors || []).length}</div>${sponsorList(S.teamSponsors || [], S.teamSponsorStats, "team")}</div>`;
   }
@@ -880,8 +893,7 @@
         <div>Il report è un consuntivo calcolato sui viaggi registrati nell'app: per ogni trasferta conclusa si contano gli atleti con un posto prenotato e i mezzi effettivamente usati (auto dei genitori e mezzi della società con almeno un atleta a bordo).</div>
         <div>Auto che sarebbero servite senza coordinamento = atleti ÷ ${fmt(perCar, 1)} (arrotondato per eccesso). Auto evitate = auto senza coordinamento − mezzi usati. Km evitati = auto evitate × km andata e ritorno della trasferta. CO2 = km evitati × ${fmt(co2, 3)} kg/km. Euro risparmiati = km evitati × ${fmt(Number(S.team.cost_per_km ?? 0.15), 2)} €/km (solo carburante).</div>
         <div class="muted">Parametri modificabili nella sezione Squadra. Ogni mezzo della società è conteggiato come un veicolo.</div>
-      </div>
-      ${sponsorStrip()}`;
+      </div>`;
   }
   function exportCSV() {
     const { rows } = computeReport();
@@ -1085,17 +1097,20 @@
       }
       if (kind === "sponsor") {
         const scope = f.dataset.scope, file = fd.get("logo");
-        if (file && file.size > 1048576) { toast("Logo troppo grande (max 1 MB)"); if (btn) btn.disabled = false; return; }
+        const vid = !!(file && file.size && /^video\//.test(file.type));
+        if (file && file.size && !/^(image\/(png|jpeg|webp|gif)|video\/(mp4|webm))$/.test(file.type)) { toast("Formato non supportato: usa PNG, JPG, WEBP, GIF, MP4 o WEBM"); if (btn) btn.disabled = false; return; }
+        if (file && file.size > (vid ? 8 : 2) * 1048576) { toast(vid ? "Video troppo grande (max 8 MB)" : "Immagine troppo grande (max 2 MB)"); if (btn) btn.disabled = false; return; }
         const link = v("link");
         if (link && !/^https?:\/\//i.test(link)) { toast("Il link deve iniziare con https://"); if (btn) btn.disabled = false; return; }
-        const row = { name: v("name"), message: v("message"), link_url: link, starts_on: v("from") || null, ends_on: v("to") || null, active: fd.get("active") === "on" };
+        const secs = Math.min(60, Math.max(3, Math.round(Number(v("seconds")) || 6)));
+        const row = { name: v("name"), message: v("message"), link_url: link, starts_on: v("from") || null, ends_on: v("to") || null, active: fd.get("active") === "on", seconds: secs };
         if (scope === "platform") { const sp = fd.getAll("sports"); row.sports = sp.length ? sp : null; }
         if (file && file.size) {
           const ext = (file.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5);
           const path = (scope === "platform" ? "platform" : S.team.id) + "/" + (crypto.randomUUID ? crypto.randomUUID() : Date.now()) + "." + ext;
           const up = await sb.storage.from("sponsor-logos").upload(path, file, { contentType: file.type, upsert: false });
           if (up.error) throw up.error;
-          row.logo_path = path;
+          row.logo_path = path; row.media_type = vid ? "video" : "image";
         }
         const q = f.dataset.id ? sb.from("sponsors").update(row).eq("id", f.dataset.id)
           : sb.from("sponsors").insert({ ...row, scope, team_id: scope === "team" ? S.team.id : null, created_by: S.user.id });
