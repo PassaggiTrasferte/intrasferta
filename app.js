@@ -55,7 +55,8 @@
     event_past: "La trasferta è già passata.",
     not_authenticated: "Sessione scaduta: accedi di nuovo.",
     request_gone: "Questa richiesta non c'è più.",
-    need_own_ride: "Prima offri il tuo passaggio su questa trasferta, poi premi di nuovo «Lo porto io».",
+    only_admins_create_teams: "Solo gli amministratori possono creare una squadra. Per una nuova società scrivi al supporto.",
+    need_own_ride:"Prima offri il tuo passaggio su questa trasferta, poi premi di nuovo «Lo porto io».",
     own_ride_full: "La tua auto è piena."
   };
   function errMsg(e) {
@@ -220,17 +221,23 @@
     $app.innerHTML = topBar({}) + `<div class="wrap">
       <div><div class="muted">Ciao ${esc(S.profile.display_name.split(",")[0])}</div><h1>Le mie squadre</h1></div>
       ${pending.length ? `<div class="notice">Hai ${pending.length} richiest${pending.length === 1 ? "a" : "e"} in attesa di approvazione da parte dell'amministratore.</div>` : ""}
-      ${cards || `<div class="empty"><strong>Nessuna squadra</strong>Crea la tua squadra oppure entra con il link o il codice ricevuto.</div>`}
+      ${cards || `<div class="empty"><strong>Nessuna squadra</strong>${canCreateTeam() ? "Crea la tua squadra oppure entra con il link o il codice ricevuto." : "Entra con il link o il codice invito che ti ha mandato l'amministratore della squadra."}</div>`}
       <div class="stack">
-        <a class="btn btn-primary btn-block" href="#/new">+ Crea una nuova squadra</a>
+        ${canCreateTeam() ? `<a class="btn btn-primary btn-block" href="#/new">+ Crea una nuova squadra</a>`
+          : `<div class="small muted">Sei il responsabile di una società e vuoi usare Carpoolino? <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}?subject=${encodeURIComponent("Nuova squadra su Carpoolino")}">Scrivici</a> e attiviamo la tua squadra.</div>`}
         ${S.ui.codeOpen ? `<form class="card form" data-form="code-join"><label class="full">Codice invito<input name="code" required maxlength="12" autocapitalize="characters" placeholder="Es. K7Q4M2PX"></label><div class="actions"><button class="btn-primary" type="submit">Continua</button><button class="btn-ghost" type="button" data-act="code-close">Annulla</button></div></form>`
           : `<button class="btn-ghost btn-block" data-act="code-open">Ho un codice invito</button>`}
       </div></div>` + footer();
   }
 
-  // ---------- nuova squadra ----------
-  function viewNewTeam() {
+  // ---------- nuova squadra (solo amministratori) ----------
+  function canCreateTeam() {
+    return !!S.platformAdmin || (S.memberships || []).some((m) => m.role === "admin" && m.status === "active");
+  }
+  async function viewNewTeam() {
     unsubscribe();
+    if (!S.memberships) { const { data } = await sb.from("team_members").select("team_id, role, status, athletes").eq("user_id", S.user.id); S.memberships = data || []; }
+    if (!canCreateTeam()) { toast("Solo gli amministratori possono creare una squadra"); location.hash = "#/"; return; }
     const sp = S.ui.newSport || "basket", L = SPORTS[sp];
     $app.innerHTML = topBar({ title: "Nuova squadra", back: "#/" }) + `<div class="wrap">
       <form class="card form" data-form="new-team">
