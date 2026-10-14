@@ -283,10 +283,16 @@
         <label class="full">Cellulare (per WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="333 1234567" value="${esc(S.profile.phone || "")}"></label>
         <div class="full small muted">Il numero è visibile solo ai genitori delle tue squadre.</div>
         <div class="full small muted">Accesso con: ${esc(S.user.email || "")}</div>
-        <div class="actions"><button class="btn-primary" type="submit">Salva</button></div>
+        <div class="actions"><button class="btn-primary" type="submit">Salva e torna alle squadre</button></div>
       </form>
+      <a class="btn btn-ghost btn-block" href="#/">← Torna alle mie squadre</a>
       ${S.platformAdmin ? `<a class="btn btn-primary btn-block" href="#/admin">Pannello di amministrazione</a>` : ""}
-      <button class="btn-ghost" data-act="logout">Esci</button>
+      <div class="card small">
+        ${S.ui.confirmLogout ? `<div><b>Vuoi uscire da Carpoolino su questo dispositivo?</b></div>
+          <div class="muted">Per rientrare dovrai inserire di nuovo la tua email e il codice che ti arriva.</div>
+          <div class="row"><button class="btn-link danger" data-act="logout">Sì, esci</button><button class="btn-link" data-act="logout-cancel">No, resta collegato</button></div>`
+        : `<div class="muted">Resti collegato su questo dispositivo finché non esci.</div><div><button class="btn-link danger" data-act="logout-ask">Esci dall'account</button></div>`}
+      </div>
     </div>` + footer();
   }
 
@@ -975,7 +981,9 @@
 
     b.disabled = true;
     try {
-      if (act === "logout") { await sb.auth.signOut(); S.profile = null; location.hash = "#/"; return; }
+      if (act === "logout-ask") { S.ui.confirmLogout = true; viewProfile(); return; }
+      if (act === "logout-cancel") { S.ui.confirmLogout = false; viewProfile(); return; }
+      if (act === "logout") { S.ui.confirmLogout = false; await sb.auth.signOut(); S.profile = null; location.hash = "#/"; return; }
       S.ui.wa = null;
       if (act === "unbook") {
         const bk = S.bookings.find((x) => x.id === id), r = bk && S.rides.find((x) => x.id === bk.ride_id), e = r && S.events.find((x) => x.id === r.event_id);
@@ -1058,7 +1066,9 @@
         if (!telOk(v("phone"))) { toast("Scrivi un numero di cellulare valido"); if (btn) btn.disabled = false; return; }
         const upd = { display_name: v("name") }; if (fd.has("phone")) upd.phone = v("phone");
         const { error } = await sb.from("profiles").update(upd).eq("id", S.user.id); if (error) throw error;
-        Object.assign(S.profile, upd); toast("Salvato"); route(); return;
+        Object.assign(S.profile, upd); toast("Salvato");
+        if ((location.hash || "#/").startsWith("#/profilo")) location.hash = "#/"; else route();
+        return;
       }
       if (kind === "code-join") { S.ui.codeOpen = false; location.hash = "#/join/" + encodeURIComponent(v("code").toUpperCase()); return; }
       if (kind === "join") {
