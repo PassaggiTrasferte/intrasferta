@@ -1,0 +1,773 @@
+/* InTrasferta · webapp (beta)
+   Nessun build: HTML + JS + Supabase. Tutti i testi degli utenti passano da esc(). */
+(function () {
+  "use strict";
+
+  const CFG = window.INTRASFERTA_CONFIG || {};
+  const SPORTS = window.SPORTS, SPORT_ORDER = window.SPORT_ORDER;
+  const $app = document.getElementById("app");
+
+  // ---------- utilità ----------
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const DOW = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
+  const MON = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"];
+  const pad = (n) => String(n).padStart(2, "0");
+  const dateParts = (iso) => { const d = new Date(iso); return { dow: DOW[d.getDay()], day: d.getDate(), mon: MON[d.getMonth()], time: pad(d.getHours()) + ":" + pad(d.getMinutes()), ymd: d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) }; };
+  const toISO = (ymd, hm) => new Date(ymd + "T" + (hm || "00:00")).toISOString();
+  const splitNames = (s) => String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const initials = (s) => (String(s || "?").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2) || "?").toUpperCase();
+  const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } };
+  const sportOf = (team) => SPORTS[team?.sport] || SPORTS.altro;
+  const fmt = (n, d = 0) => Number(n || 0).toLocaleString("it-IT", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+  let toastT;
+  function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 3000); }
+
+  const ERRORS = {
+    ride_full: "Auto piena: qualcuno ha appena preso l'ultimo posto.",
+    athlete_already_booked: "Questo atleta ha già un posto per questa trasferta.",
+    invalid_code: "Codice invito non valido o scaduto. Chiedi un nuovo link all'amministratore.",
+    forbidden: "Non hai i permessi per questa operazione.",
+    convocation_only_admin: "Su questo mezzo i posti li assegna la società.",
+    last_admin: "Sei l'unico amministratore: nomina un altro amministratore prima di uscire.",
+    event_past: "La trasferta è già passata.",
+    not_authenticated: "Sessione scaduta: accedi di nuovo."
+  };
+  function errMsg(e) {
+    const m = (e && (e.message || e.error_description || e.msg)) || "";
+    for (const k in ERRORS) if (m.includes(k)) return ERRORS[k];
+    if (/row-level security/i.test(m)) return ERRORS.forbidden;
+    if (/Failed to fetch|NetworkError/i.test(m)) return "Connessione assente: riprova tra poco.";
+    return "Operazione non riuscita. Riprova tra poco.";
+  }
+
+  // ---------- configurazione mancante ----------
+  if (!CFG.SUPABASE_URL || CFG.SUPABASE_URL.includes("INCOLLA") || !window.supabase) {
+    $app.innerHTML = `<div class="wrap narrow"><div class="card"><h2>Configurazione mancante</h2>
+      <p>Apri <b>config.js</b> e incolla l'indirizzo e la chiave del progetto Supabase, come spiegato nella guida.</p></div></div>`;
+    return;
+  }
+
+  const sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {
+    auth: { flowType: "pkce", persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+  });
+
+  // ---------- stato ----------
+  const S = {
+    session: null, user: null, profile: null,
+    teams: [], memberships: [],
+    team: null, me: null, members: [], events: [], rides: [], bookings: [], vehicles: [],
+    ui: {}, showPast: false, channel: null, loadedTeam: null, aiPreview: null
+  };
+  const isAdmin = () => S.me && S.me.role === "admin" && S.me.status === "active";
+  const premium = (t) => (t || S.team)?.plan !== "free";
+
+  // ---------- autenticazione ----------
+  async function init() {
+    const { data } = await sb.auth.getSession();
+    S.session = data.session;
+    sb.auth.onAuthStateChange((_ev, session) => {
+      const was = !!S.session; S.session = session;
+      if (!!session !== was) { S.profile = null; route(); }
+    });
+    window.addEventListener("hashchange", route);
+    route();
+  }
+
+  async function ensureProfile() {
+    if (S.profile) return S.profile;
+    S.user = (await sb.auth.getUser()).data.user;
+    const { data } = await sb.from("profiles").select("*").eq("id", S.user.id).maybeSingle();
+    S.profile = data || { id: S.user.id, display_name: "" };
+    return S.profile;
+  }
+
+  function viewLogin(nextHash) {
+    if (nextHash) store("it-next", nextHash);
+    const step = S.ui.loginEmail ? "code" : "email";
+    $app.innerHTML = `
+      <div class="hero"><div class="in">
+        <div class="label" style="color:#F28C28">Beta</div>
+        <h1><b>In</b>Trasferta</h1>
+        <p style="font-size:1.15rem;margin:0">Le trasferte della squadra, organizzate in un minuto.</p>
+      </div></div>
+      <div class="wrap narrow">
+        ${step === "email" ? `
+        <form class="card form" data-form="login-email">
+          <label class="full">La tua email<input type="email" name="email" required autocomplete="email" placeholder="nome@esempio.it"></label>
+          <div class="actions"><button class="btn-primary btn-block" type="submit">Ricevi il codice di accesso</button></div>
+          <p class="full small muted" style="margin:0">Niente password: ti mandiamo un codice di 6 cifre (e un link) via email.</p>
+        </form>` : `
+        <form class="card form" data-form="login-code">
+          <p class="full" style="margin:0">Abbiamo scritto a <b>${esc(S.ui.loginEmail)}</b>. Inserisci il codice ricevuto, oppure apri il link nella mail da questo stesso telefono.</p>
+          <label class="full">Codice<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" required placeholder="123456"></label>
+          <div class="actions"><button class="btn-primary" type="submit">Entra</button><button class="btn-ghost" type="button" data-act="login-restart">Cambia email</button></div>
+        </form>`}
+        <p class="small muted">Usando InTrasferta accetti che il tuo nome e quello dei tuoi atleti siano visibili agli altri membri delle tue squadre. Nessun indirizzo di casa, nessuna posizione in tempo reale, nessun pagamento.</p>
+      </div>`;
+  }
+
+  function viewName() {
+    $app.innerHTML = `<div class="wrap narrow">
+      <h1>Come ti chiami?</h1>
+      <form class="card form" data-form="profile-name">
+        <label class="full">Il tuo nome, come ti vedranno gli altri genitori<input name="name" required maxlength="80" placeholder="Es. Carmine, papà di Nicolò" value="${esc(S.profile?.display_name || "")}"></label>
+        <div class="actions"><button class="btn-primary" type="submit">Continua</button></div>
+      </form></div>`;
+  }
+
+  // ---------- router ----------
+  async function route() {
+    const hash = location.hash || "#/";
+    if (!S.session) return viewLogin(hash !== "#/" ? hash : null);
+    try { await ensureProfile(); } catch (e) { toast(errMsg(e)); }
+    if (!S.profile?.display_name) return viewName();
+    const next = store("it-next");
+    if (next) { store("it-next", null); if (next !== hash) { location.hash = next; return; } }
+
+    const parts = hash.slice(2).split("/");
+    if (parts[0] === "join" && parts[1]) return viewJoin(decodeURIComponent(parts[1]));
+    if (parts[0] === "new") return viewNewTeam();
+    if (parts[0] === "profilo") return viewProfile();
+    if (parts[0] === "t" && parts[1]) return viewTeam(parts[1], parts[2] || "trasferte");
+    return viewHome();
+  }
+
+  function topBar({ title, sub, back, tabs, active, teamId }) {
+    return `<header class="top"><div class="in">
+      ${back ? `<a class="iconbtn" href="${back}" aria-label="Indietro"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></a>` : `<a class="brand" href="#/">${logoSvg(26)}<span><b>In</b>Trasferta</span></a>`}
+      <div class="grow">${title ? `<div class="title">${esc(title)}</div>` : ""}${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</div>
+      <a class="iconbtn ring" href="#/profilo" aria-label="Profilo">${esc(initials(S.profile?.display_name))}</a>
+    </div>
+    ${tabs ? `<nav class="tabs" aria-label="Sezioni squadra">${tabs.map(([k, l]) => `<a href="#/t/${teamId}/${k}" ${k === active ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav>` : ""}
+    </header>`;
+  }
+  function logoSvg(h) {
+    return `<svg width="${Math.round(h * 0.85)}" height="${h}" viewBox="0 0 64 75" aria-hidden="true"><path d="M32 2C16.5 2 4 14.2 4 29.4 4 50 32 73 32 73s28-23 28-43.6C60 14.2 47.5 2 32 2z" fill="#F28C28"/><path d="M15 37v-5c0-1.7 1.1-3.2 2.8-3.7l5-1.5 5.5-6.6c.9-1.1 2.3-1.7 3.7-1.7h7.6c1.5 0 2.8.6 3.7 1.7l5.3 6.3 3 .8c1.8.4 3 2 3 3.8V37z" fill="#fff"/><circle cx="23" cy="38" r="4.2" fill="#16202E"/><circle cx="41" cy="38" r="4.2" fill="#16202E"/></svg>`;
+  }
+  const footer = () => `<footer class="foot">InTrasferta beta · solo coordinamento tra famiglie, nessun pagamento · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
+
+  // ---------- home: le mie squadre ----------
+  async function viewHome() {
+    unsubscribe();
+    $app.innerHTML = topBar({}) + `<div class="wrap"><div class="boot">Carico le tue squadre…</div></div>`;
+    const uid = S.user.id;
+    const { data: mems, error } = await sb.from("team_members").select("team_id, role, status, athletes").eq("user_id", uid);
+    if (error) return toast(errMsg(error));
+    S.memberships = mems || [];
+    const ids = S.memberships.filter((m) => m.status === "active").map((m) => m.team_id);
+    let teams = [], events = [], rides = [], bookings = [];
+    if (ids.length) {
+      teams = (await sb.from("teams").select("*").in("id", ids)).data || [];
+      const now = new Date(Date.now() - 6 * 3600e3).toISOString();
+      events = (await sb.from("events").select("id,team_id,title,starts_at").in("team_id", ids).gte("starts_at", now).order("starts_at")).data || [];
+      const evIds = events.map((e) => e.id);
+      if (evIds.length) {
+        rides = (await sb.from("rides").select("id,event_id,seats").in("event_id", evIds)).data || [];
+        bookings = (await sb.from("bookings").select("id,ride_id").in("event_id", evIds)).data || [];
+      }
+    }
+    const pending = S.memberships.filter((m) => m.status === "pending");
+    const cards = teams.map((t) => {
+      const m = S.memberships.find((x) => x.team_id === t.id);
+      const evs = events.filter((e) => e.team_id === t.id);
+      const nextEv = evs[0];
+      const noCar = evs.filter((e) => !rides.some((r) => r.event_id === e.id)).length;
+      const free = rides.filter((r) => evs.some((e) => e.id === r.event_id)).reduce((a, r) => a + Math.max(0, r.seats - bookings.filter((b) => b.ride_id === r.id).length), 0);
+      return `<a class="card teamcard" href="#/t/${t.id}/trasferte">
+        <div class="between"><div><h2>${esc(t.name)}</h2><div class="meta">${esc(sportOf(t).label)}${t.category ? " · " + esc(t.category) : ""} · ${esc(t.season)}</div></div>
+        <span class="chip ${m.role === "admin" ? "navy" : ""}">${m.role === "admin" ? "Amministratore" : "Genitore"}</span></div>
+        <div class="stats"><div><b>${evs.length}</b>trasferte</div><div><b>${free}</b>posti liberi</div><div class="${noCar ? "warn" : ""}"><b>${noCar}</b>senza auto</div></div>
+        ${nextEv ? `<div class="small muted">Prossima: <b style="color:var(--ink)">${(() => { const p = dateParts(nextEv.starts_at); return `${p.dow} ${p.day} ${p.mon} · ${esc(nextEv.title)}`; })()}</b></div>` : ""}
+      </a>`;
+    }).join("");
+    $app.innerHTML = topBar({}) + `<div class="wrap">
+      <div><div class="muted">Ciao ${esc(S.profile.display_name.split(",")[0])}</div><h1>Le mie squadre</h1></div>
+      ${pending.length ? `<div class="notice">Hai ${pending.length} richiest${pending.length === 1 ? "a" : "e"} in attesa di approvazione da parte dell'amministratore.</div>` : ""}
+      ${cards || `<div class="empty"><strong>Nessuna squadra</strong>Crea la tua squadra oppure entra con il link o il codice ricevuto.</div>`}
+      <div class="stack">
+        <a class="btn btn-primary btn-block" href="#/new">+ Crea una nuova squadra</a>
+        ${S.ui.codeOpen ? `<form class="card form" data-form="code-join"><label class="full">Codice invito<input name="code" required maxlength="12" autocapitalize="characters" placeholder="Es. K7Q4M2PX"></label><div class="actions"><button class="btn-primary" type="submit">Continua</button><button class="btn-ghost" type="button" data-act="code-close">Annulla</button></div></form>`
+          : `<button class="btn-ghost btn-block" data-act="code-open">Ho un codice invito</button>`}
+      </div></div>` + footer();
+  }
+
+  // ---------- nuova squadra ----------
+  function viewNewTeam() {
+    unsubscribe();
+    const sp = S.ui.newSport || "basket", L = SPORTS[sp];
+    $app.innerHTML = topBar({ title: "Nuova squadra", back: "#/" }) + `<div class="wrap">
+      <form class="card form" data-form="new-team">
+        <div class="full stack" style="gap:8px"><div class="label">Sport</div>
+          <div class="pill-group" role="radiogroup" aria-label="Sport">${SPORT_ORDER.map((k) => `<button type="button" class="pill" role="radio" aria-checked="${k === sp}" data-act="pick-sport" data-v="${k}">${esc(SPORTS[k].label)}</button>`).join("")}</div></div>
+        <label class="full">Nome squadra<input name="name" required minlength="2" maxlength="80" placeholder="Es. Urania Milano U17"></label>
+        <label>Categoria<input name="category" maxlength="40" placeholder="Es. U17"></label>
+        <label>Stagione<input name="season" maxlength="20" value="2026/27"></label>
+        <label class="full">Il tuo atleta (facoltativo)<input name="athletes" maxlength="200" placeholder="Es. Nicolò — più nomi separati da virgola"></label>
+        <div class="full card" style="background:var(--bg)"><div class="label">Così vedranno le pagine i genitori</div>
+          <div class="small">Luogo: <b>${esc(L.place)}</b> · Orario: <b>${esc(L.time)}</b> · Evento: <b>${esc(L.event)}</b></div></div>
+        <div class="actions"><button class="btn-primary btn-block" type="submit">Crea squadra</button></div>
+      </form></div>`;
+  }
+
+  // ---------- entrare con invito ----------
+  async function viewJoin(code) {
+    unsubscribe();
+    $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="boot">Controllo l'invito…</div></div>`;
+    const { data, error } = await sb.rpc("preview_invite", { p_code: code });
+    const t = data && data[0];
+    if (error || !t) {
+      $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="empty"><strong>Invito non valido</strong>${ERRORS.invalid_code}</div></div>`;
+      return;
+    }
+    $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow">
+      <div class="card"><div class="label">Ti hanno invitato in</div><h1>${esc(t.team_name)}</h1>
+        <div class="meta">${esc((SPORTS[t.sport] || SPORTS.altro).label)}${t.category ? " · " + esc(t.category) : ""} · ${esc(t.season)}</div></div>
+      <form class="card form" data-form="join" data-code="${esc(code)}">
+        <label class="full">Nome del tuo atleta<input name="athletes" required maxlength="200" placeholder="Es. Luca — più nomi separati da virgola"></label>
+        <div class="actions"><button class="btn-primary btn-block" type="submit">Entra nella squadra</button></div>
+        <p class="full small muted" style="margin:0">Gli altri membri della squadra vedranno il tuo nome e quello del tuo atleta.</p>
+      </form></div>`;
+  }
+
+  // ---------- profilo ----------
+  function viewProfile() {
+    unsubscribe();
+    $app.innerHTML = topBar({ title: "Profilo", back: "#/" }) + `<div class="wrap narrow">
+      <form class="card form" data-form="profile-name">
+        <label class="full">Il tuo nome<input name="name" required maxlength="80" value="${esc(S.profile.display_name)}"></label>
+        <div class="full small muted">Accesso con: ${esc(S.user.email || "")}</div>
+        <div class="actions"><button class="btn-primary" type="submit">Salva</button></div>
+      </form>
+      <button class="btn-ghost" data-act="logout">Esci</button>
+    </div>` + footer();
+  }
+
+  // ---------- squadra ----------
+  function unsubscribe() { if (S.channel) { sb.removeChannel(S.channel); S.channel = null; } S.loadedTeam = null; }
+
+  async function loadTeam(id) {
+    const uid = S.user.id;
+    const [t, me] = await Promise.all([
+      sb.from("teams").select("*").eq("id", id).maybeSingle(),
+      sb.from("team_members").select("*").eq("team_id", id).eq("user_id", uid).maybeSingle()
+    ]);
+    if (t.error) throw t.error;
+    S.team = t.data; S.me = me.data;
+    if (!S.team) return false;
+    const [mem, ev, ri, bo, ve] = await Promise.all([
+      sb.from("team_members").select("*").eq("team_id", id),
+      sb.from("events").select("*").eq("team_id", id).order("starts_at"),
+      sb.from("rides").select("*").eq("team_id", id).order("created_at"),
+      sb.from("bookings").select("*").eq("team_id", id).order("created_at"),
+      sb.from("vehicles").select("*").eq("team_id", id).order("created_at")
+    ]);
+    const memberIds = (mem.data || []).map((m) => m.user_id);
+    const prof = memberIds.length ? (await sb.from("profiles").select("id,display_name").in("id", memberIds)).data || [] : [];
+    S.members = (mem.data || []).map((m) => ({ ...m, name: (prof.find((p) => p.id === m.user_id) || {}).display_name || "Genitore" }));
+    S.events = ev.data || []; S.rides = ri.data || []; S.bookings = bo.data || []; S.vehicles = ve.data || [];
+    return true;
+  }
+
+  function subscribe(id) {
+    if (S.loadedTeam === id && S.channel) return;
+    unsubscribe(); S.loadedTeam = id;
+    let t;
+    const refresh = () => { clearTimeout(t); t = setTimeout(async () => { if (S.loadedTeam !== id) return; if (anyFormOpen()) return; await loadTeam(id); renderTeam(); }, 400); };
+    S.channel = sb.channel("team-" + id)
+      .on("postgres_changes", { event: "*", schema: "public", table: "rides", filter: "team_id=eq." + id }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "bookings", filter: "team_id=eq." + id }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: "team_id=eq." + id }, refresh)
+      .subscribe();
+  }
+  const anyFormOpen = () => !!(S.ui.offer || S.ui.book || S.ui.club || S.ui.editEvent || S.ui.newEvent);
+
+  let currentTab = "trasferte";
+  async function viewTeam(id, tab) {
+    currentTab = tab;
+    if (S.loadedTeam !== id) {
+      S.ui = {}; S.aiPreview = null;
+      $app.innerHTML = topBar({ title: "…", back: "#/" }) + `<div class="wrap"><div class="boot">Carico la squadra…</div></div>`;
+      try { const ok = await loadTeam(id); if (!ok) { $app.innerHTML = topBar({ title: "Squadra", back: "#/" }) + `<div class="wrap"><div class="empty"><strong>Squadra non disponibile</strong>Non fai parte di questa squadra, oppure la tua richiesta è ancora in attesa di approvazione.</div></div>`; return; } }
+      catch (e) { toast(errMsg(e)); return; }
+      subscribe(id);
+    } else if (!anyFormOpen()) {
+      try { await loadTeam(id); } catch (e) { /* mostra i dati già caricati */ }
+      if (!S.team) { location.hash = "#/"; return; }
+    }
+    renderTeam();
+  }
+
+  function teamTabs() {
+    const tabs = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"]];
+    if (isAdmin()) tabs.push(["mezzi", "Mezzi"], ["report", "Report"], ["impostazioni", "Squadra"]);
+    return tabs;
+  }
+
+  function renderTeam() {
+    const t = S.team;
+    const tabs = teamTabs();
+    if (!tabs.some(([k]) => k === currentTab)) currentTab = "trasferte";
+    const head = topBar({ title: t.name, sub: `${sportOf(t).label}${t.category ? " · " + t.category : ""} · ${t.season}`, back: "#/", tabs, active: currentTab, teamId: t.id });
+    const body = { trasferte: tabTrips, membri: tabMembers, invita: tabInvite, mezzi: tabVehicles, report: tabReport, impostazioni: tabSettings }[currentTab]();
+    const y = window.scrollY;
+    $app.innerHTML = head + `<div class="wrap">${t.plan === "beta" && isAdmin() && currentTab === "trasferte" ? `<div class="notice small">Versione beta: tutte le funzioni Premium sono attive gratuitamente.</div>` : ""}${body}</div>` + footer();
+    window.scrollTo(0, y);
+    if (currentTab === "invita") drawQR();
+  }
+
+  // ----- tab trasferte -----
+  function roster() {
+    const out = [];
+    S.members.filter((m) => m.status === "active").forEach((m) => splitNames(m.athletes).forEach((a) => out.push({ name: a, parent: m.name, user_id: m.user_id })));
+    return out;
+  }
+  const myAthletes = () => splitNames(S.me?.athletes);
+
+  function tabTrips() {
+    const L = sportOf(S.team);
+    const cut = Date.now() - 6 * 3600e3;
+    const up = S.events.filter((e) => new Date(e.starts_at).getTime() >= cut);
+    const past = S.events.filter((e) => new Date(e.starts_at).getTime() < cut).reverse();
+    const admin = isAdmin();
+    return `
+      ${admin ? `<div class="row noprint">
+        ${S.ui.newEvent ? "" : `<button class="btn-primary" data-act="new-event">+ Aggiungi trasferta</button>`}
+        ${premium() ? `<button class="btn-ghost" data-act="ai-open">Importa calendario con l'AI</button>` : ""}
+      </div>` : ""}
+      ${S.ui.newEvent ? eventForm(null, L) : ""}
+      ${S.ui.ai ? aiPanel() : ""}
+      ${up.length ? up.map((e) => tripCard(e, false)).join("") : `<div class="empty"><strong>Nessuna trasferta in programma</strong>${admin ? "Aggiungi la prossima trasferta o importa il calendario." : "Quando l'amministratore aggiunge una trasferta, comparirà qui."}</div>`}
+      ${past.length ? `<button class="btn-link" data-act="toggle-past">${S.showPast ? "Nascondi" : "Mostra"} trasferte passate (${past.length})</button>${S.showPast ? past.map((e) => tripCard(e, true)).join("") : ""}` : ""}`;
+  }
+
+  function eventForm(e, L) {
+    const p = e ? dateParts(e.starts_at) : null;
+    return `<form class="card form" data-form="event" data-id="${e ? e.id : ""}">
+      <h3 class="full">${e ? "Modifica trasferta" : "Nuova trasferta"}</h3>
+      <label class="full">${esc(L.event)}<input name="title" required minlength="2" maxlength="120" value="${esc(e?.title || "")}" placeholder="Es. Vanoliyoung - ${esc(S.team.name)}"></label>
+      <label>Data<input name="date" type="date" required value="${p ? p.ymd : ""}"></label>
+      <label>${esc(L.time)}<input name="time" type="time" value="${p ? p.time : ""}"></label>
+      <label class="full">${esc(L.place)} / indirizzo<input name="place" maxlength="200" value="${esc(e?.place || "")}" placeholder="Via, città"></label>
+      <label>Km andata e ritorno<input name="km" type="number" min="0" max="5000" step="1" value="${e?.km_round_trip ?? ""}" placeholder="Es. 160"></label>
+      <label class="full">Note<input name="notes" maxlength="300" value="${esc(e?.notes || "")}" placeholder="Es. ritrovo al palazzetto alle 18:30"></label>
+      <div class="actions"><button class="btn-primary" type="submit">${e ? "Salva" : "Aggiungi trasferta"}</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
+    </form>`;
+  }
+
+  function tripCard(e, isPast) {
+    if (S.ui.editEvent === e.id) return eventForm(e, sportOf(S.team));
+    const p = dateParts(e.starts_at);
+    const rides = S.rides.filter((r) => r.event_id === e.id).sort((a, b) => (a.kind === "club" ? -1 : 0) - (b.kind === "club" ? -1 : 0));
+    const bk = S.bookings.filter((b) => b.event_id === e.id);
+    const tot = rides.reduce((a, r) => a + r.seats, 0);
+    const free = Math.max(0, tot - bk.length);
+    const booked = new Set(bk.map((b) => b.athlete_name.toLowerCase()));
+    const missing = roster().filter((a) => !booked.has(a.name.toLowerCase()));
+    const admin = isAdmin();
+    const chips = rides.length
+      ? `<span class="chip">${rides.length} ${rides.length === 1 ? "mezzo" : "mezzi"}</span><span class="chip ${free ? "ok" : "warn"}">${free ? free + (free === 1 ? " posto libero" : " posti liberi") : "Tutto pieno"}</span>`
+      : `<span class="chip warn">Nessuna auto ancora</span>`;
+    const confirming = S.ui.confirm === "event:" + e.id;
+    return `<article class="trip ${isPast ? "past" : ""}">
+      <div class="stub"><span class="dow">${p.dow}</span><span class="day">${p.day}</span><span class="mon">${p.mon}</span><span class="time">${p.time}</span></div>
+      <div class="tbody">
+        <div class="between" style="align-items:start">
+          <div style="min-width:0"><h2>${esc(e.title)}</h2>
+            ${e.place ? `<div class="meta">${esc(e.place)}</div>` : ""}
+            ${e.notes ? `<div class="meta">${esc(e.notes)}</div>` : ""}
+            ${e.km_round_trip ? `<div class="meta">${fmt(e.km_round_trip)} km andata e ritorno</div>` : ""}
+          </div>
+          <div class="row">${chips}</div>
+        </div>
+        ${!isPast && missing.length && rides.length ? `<div class="missing"><b>Senza posto (${missing.length}):</b> ${missing.map((a) => esc(a.name)).join(", ")}</div>` : ""}
+        ${rides.map((r) => rideBlock(r, e, isPast)).join("")}
+        ${!isPast ? `<div class="row noprint">
+          ${S.ui.offer === e.id ? "" : `<button class="btn-ghost" data-act="offer" data-id="${e.id}">Offro un passaggio</button>`}
+          ${admin && S.ui.club !== e.id ? `<button class="btn-ghost" data-act="club" data-id="${e.id}">+ Mezzo della società</button>` : ""}
+        </div>` : ""}
+        ${S.ui.offer === e.id ? offerForm(e) : ""}
+        ${S.ui.club === e.id ? clubForm(e) : ""}
+        ${admin ? `<div class="row noprint">${confirming
+          ? `<span class="confirm">Eliminare la trasferta con tutti i passaggi? <button class="btn-link danger" data-act="del-event" data-id="${e.id}">Sì, elimina</button><button class="btn-link" data-act="cancel">Annulla</button></span>`
+          : `<button class="btn-link" data-act="edit-event" data-id="${e.id}">Modifica</button><button class="btn-link" data-act="ask-del-event" data-id="${e.id}">Elimina</button>`}</div>` : ""}
+      </div></article>`;
+  }
+
+  function rideBlock(r, e, isPast) {
+    const rs = S.bookings.filter((b) => b.ride_id === r.id);
+    const free = Math.max(0, r.seats - rs.length);
+    const mine = r.created_by === S.user.id;
+    const admin = isAdmin();
+    const veh = r.vehicle_id ? S.vehicles.find((v) => v.id === r.vehicle_id) : null;
+    const who = r.kind === "club" ? `${veh ? esc(veh.name) : "Mezzo"}${r.driver_name ? " · autista " + esc(r.driver_name) : ""}` : esc(r.driver_name);
+    const dots = Array.from({ length: Math.min(r.seats, 20) }, (_, i) => `<span class="seat ${i < rs.length ? "taken" : ""}"></span>`).join("");
+    const canBook = !isPast && free > 0 && (r.assignment === "booking" || admin);
+    const confirming = S.ui.confirm === "ride:" + r.id;
+    return `<div class="ride ${r.kind === "club" ? "club" : ""}">
+      <div class="between" style="align-items:baseline">
+        <div style="min-width:0"><span class="driver">${who}</span>
+          <div class="meta">Parte da ${esc(r.depart_from || "—")}${r.depart_time ? ` alle <b>${esc(r.depart_time)}</b>` : ""} · ${r.return_trip ? "fa anche il ritorno" : "solo andata"}${r.assignment === "convocation" ? " · posti assegnati dalla società" : ""}</div>
+          ${r.notes ? `<div class="meta">${esc(r.notes)}</div>` : ""}
+        </div>
+        <div class="seats" aria-label="${free} posti liberi su ${r.seats}">${dots}<span class="chip ${free ? "ok" : "warn"}">${free ? free + " liberi" : "Pieno"}</span></div>
+      </div>
+      ${rs.length ? `<ul class="pax">${rs.map((b) => `<li><span>${esc(b.athlete_name)}${b.pickup ? ` <small>· sale a ${esc(b.pickup)}</small>` : ""}</span>${!isPast && (b.booked_by === S.user.id || mine || admin) ? `<button class="btn-link danger" data-act="unbook" data-id="${b.id}">Libera</button>` : ""}</li>`).join("")}</ul>` : ""}
+      ${S.ui.book === r.id ? bookForm(r) : ""}
+      ${!isPast ? `<div class="row noprint">
+        ${canBook && S.ui.book !== r.id ? `<button class="btn-primary" data-act="book" data-id="${r.id}">${r.assignment === "convocation" ? "Assegna un posto" : "Prenota un posto"}</button>` : ""}
+        ${mine || admin ? (confirming
+          ? `<span class="confirm">Ritirare questo mezzo? Le prenotazioni verranno cancellate. <button class="btn-link danger" data-act="del-ride" data-id="${r.id}">Sì</button><button class="btn-link" data-act="cancel">No</button></span>`
+          : `<button class="btn-link" data-act="ask-del-ride" data-id="${r.id}">${r.kind === "club" ? "Togli mezzo" : "Ritira la mia auto"}</button>`) : ""}
+      </div>` : ""}
+    </div>`;
+  }
+
+  function offerForm(e) {
+    return `<form class="form" data-form="offer" data-id="${e.id}" style="border-top:1px solid var(--line);padding-top:12px">
+      <label>Posti liberi<select name="seats">${[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `<option ${n === 3 ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label>Orario partenza<input name="time" type="time"></label>
+      <label class="full">Punto di partenza<input name="from" required maxlength="120" placeholder="Es. parcheggio del palazzetto"></label>
+      <label class="full">Note<input name="notes" maxlength="200" placeholder="Es. posso fare una tappa lungo la strada"></label>
+      <label class="full check"><input name="back" type="checkbox" checked> Faccio anche il ritorno</label>
+      <div class="actions"><button class="btn-primary" type="submit">Pubblica il passaggio</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
+    </form>`;
+  }
+
+  function clubForm(e) {
+    const vs = S.vehicles.filter((v) => v.active);
+    if (!vs.length) return `<div class="notice small">Prima registra i mezzi della società nella sezione <a href="#/t/${S.team.id}/mezzi">Mezzi</a>.</div>`;
+    return `<form class="form" data-form="club" data-id="${e.id}" style="border-top:1px solid var(--line);padding-top:12px">
+      <label class="full">Mezzo<select name="vehicle">${vs.map((v) => `<option value="${v.id}" data-seats="${v.seats}">${esc(v.name)} · ${v.seats} posti</option>`).join("")}</select></label>
+      <label>Posti disponibili<input name="seats" type="number" min="1" max="60" value="${vs[0].seats}"></label>
+      <label>Orario partenza<input name="time" type="time"></label>
+      <label class="full">Autista<input name="driver" maxlength="80" placeholder="Es. coach Rossi"></label>
+      <label class="full">Punto di partenza<input name="from" maxlength="120" placeholder="Es. palestra della società"></label>
+      <label class="full">Assegnazione posti<select name="assignment"><option value="booking">I genitori prenotano</option><option value="convocation">La società convoca (assegna l'amministratore)</option></select></label>
+      <label class="full check"><input name="back" type="checkbox" checked> Fa anche il ritorno</label>
+      <div class="actions"><button class="btn-primary" type="submit">Aggiungi mezzo</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
+    </form>`;
+  }
+
+  function bookForm(r) {
+    const conv = r.assignment === "convocation";
+    const booked = new Set(S.bookings.filter((b) => b.event_id === r.event_id).map((b) => b.athlete_name.toLowerCase()));
+    const names = (conv || isAdmin() ? roster().map((a) => a.name) : myAthletes()).filter((n) => !booked.has(n.toLowerCase()));
+    return `<form class="form" data-form="book" data-id="${r.id}">
+      <label>Atleta<input name="athlete" required maxlength="60" list="dl-${r.id}" value="${esc(names.length === 1 && !conv ? names[0] : "")}" placeholder="Nome dell'atleta"><datalist id="dl-${r.id}">${names.map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>
+      <label>Dove sale<input name="pickup" maxlength="80" placeholder="Al punto di partenza"></label>
+      <div class="actions"><button class="btn-primary" type="submit">${conv ? "Assegna posto" : "Conferma posto"}</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
+    </form>`;
+  }
+
+  // ----- import calendario con AI -----
+  function aiPanel() {
+    if (!CFG.AI_IMPORT_ENABLED) return `<div class="card"><h3>Importa calendario con l'AI</h3><p class="muted" style="margin:0">Funzione non ancora attivata su questa installazione.</p><div><button class="btn-ghost" data-act="ai-close">Chiudi</button></div></div>`;
+    const prev = S.aiPreview;
+    return `<div class="card">
+      <h3>Importa calendario con l'AI</h3>
+      ${!prev ? `<form class="form" data-form="ai">
+        <p class="full small muted" style="margin:0">Carica il calendario ufficiale (PDF o foto/screenshot) oppure incolla il testo. L'AI trova le partite: tu controlli e confermi prima di salvare.</p>
+        <label class="full">File (PDF, JPG, PNG · max 5 MB)<input name="file" type="file" accept="application/pdf,image/png,image/jpeg,image/webp"></label>
+        <label class="full">…oppure incolla il testo<textarea name="text" maxlength="20000" placeholder="15/10/2026 20:30 Vanoliyoung - ${esc(S.team.name)}"></textarea></label>
+        <div class="actions"><button class="btn-primary" type="submit">Leggi il calendario</button><button class="btn-ghost" type="button" data-act="ai-close">Chiudi</button></div>
+      </form>` : `<form class="stack" data-form="ai-confirm">
+        <div class="small muted">Trovati ${prev.length} eventi. Sono selezionate le trasferte (partite fuori casa). Controlla date e orari prima di confermare.</div>
+        ${prev.map((ev, i) => `<label class="card" style="padding:12px;grid-template-columns:28px 1fr;align-items:start;gap:10px;display:grid">
+          <input type="checkbox" name="pick" value="${i}" ${ev.is_away !== false ? "checked" : ""} style="width:22px;height:22px;min-height:0">
+          <span class="stack" style="gap:6px"><b>${esc(ev.title)}</b><span class="small muted">${esc(ev.date)} ${esc(ev.time || "")} ${ev.place ? "· " + esc(ev.place) : ""} ${ev.is_away === false ? "· in casa" : ""}</span>
+            <span class="row small">Km A/R <input name="km-${i}" type="number" min="0" max="5000" value="${ev.km_round_trip ?? ""}" style="width:110px;min-height:36px;padding:6px 8px"></span></span>
+        </label>`).join("")}
+        <div class="row"><button class="btn-primary" type="submit">Aggiungi le trasferte selezionate</button><button class="btn-ghost" type="button" data-act="ai-reset">Ricomincia</button></div>
+      </form>`}
+    </div>`;
+  }
+
+  function fileToBase64(file) {
+    return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(file); });
+  }
+
+  // ----- tab membri -----
+  function tabMembers() {
+    const admin = isAdmin();
+    const pend = S.members.filter((m) => m.status === "pending");
+    const act = S.members.filter((m) => m.status === "active").sort((a, b) => (a.role === "admin" ? -1 : 1) - (b.role === "admin" ? -1 : 1) || a.name.localeCompare(b.name));
+    return `
+      ${admin && pend.length ? `<div class="card" style="background:var(--accent-soft)"><div class="label">Da approvare · ${pend.length}</div>
+        ${pend.map((m) => `<div class="member"><div class="avatar">${esc(initials(m.name))}</div><div class="grow" style="flex:1;min-width:0"><b>${esc(m.name)}</b><div class="small muted">atleti: ${esc(m.athletes || "—")}</div></div>
+          <button class="btn-ok" data-act="approve" data-id="${m.user_id}">Accetta</button><button class="btn-link danger" data-act="reject" data-id="${m.user_id}">Rifiuta</button></div>`).join("")}</div>` : ""}
+      <form class="card form" data-form="my-athletes">
+        <label class="full">I miei atleti in questa squadra<input name="athletes" maxlength="200" value="${esc(S.me.athletes)}" placeholder="Più nomi separati da virgola"></label>
+        <div class="actions"><button class="btn-primary" type="submit">Salva</button></div>
+      </form>
+      <div class="card"><div class="label">Membri · ${act.length}</div>
+        ${act.map((m) => {
+          const me = m.user_id === S.user.id;
+          const c = S.ui.confirm === "member:" + m.user_id;
+          return `<div class="member"><div class="avatar">${esc(initials(m.name))}</div>
+            <div style="flex:1;min-width:0"><b>${esc(m.name)}${me ? " (tu)" : ""}</b><div class="small muted">atleti: ${esc(m.athletes || "—")}</div>
+              ${admin && !me ? `<div class="row">${c ? `<span class="confirm">Togliere dalla squadra? <button class="btn-link danger" data-act="remove-member" data-id="${m.user_id}">Sì</button><button class="btn-link" data-act="cancel">No</button></span>`
+                : `<button class="btn-link" data-act="toggle-admin" data-id="${m.user_id}">${m.role === "admin" ? "Togli amministratore" : "Rendi amministratore"}</button><button class="btn-link danger" data-act="ask-remove-member" data-id="${m.user_id}">Togli</button>`}</div>` : ""}
+            </div>
+            <span class="chip ${m.role === "admin" ? "navy" : ""}">${m.role === "admin" ? "Admin" : "Genitore"}</span></div>`;
+        }).join("")}
+      </div>
+      <div>${S.ui.confirm === "leave" ? `<span class="confirm">Vuoi davvero lasciare la squadra? <button class="btn-link danger" data-act="leave">Sì, esci</button><button class="btn-link" data-act="cancel">No</button></span>` : `<button class="btn-link danger" data-act="ask-leave">Lascia la squadra</button>`}</div>`;
+  }
+
+  // ----- tab invita -----
+  const inviteUrl = () => location.origin + location.pathname + "#/join/" + S.team.invite_code;
+  const inviteText = () => `Ciao! Per organizzare i passaggi alle trasferte di ${S.team.name} usiamo InTrasferta: entra da qui e scrivi il nome del tuo atleta. ${inviteUrl()}`;
+  function tabInvite() {
+    const admin = isAdmin();
+    return `<div class="card">
+        <div class="qr" id="qr" role="img" aria-label="QR code dell'invito"></div>
+        <div class="small muted" style="text-align:center">Inquadra per entrare nella squadra · codice <b>${esc(S.team.invite_code)}</b></div>
+        <div class="code">${esc(inviteUrl())}</div>
+        <div class="row"><button class="btn-ghost" data-act="copy-link">Copia link</button>
+          <a class="btn btn-ok" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(inviteText())}">Invia su WhatsApp</a>
+          <button class="btn-ghost" data-act="print">Stampa QR</button></div>
+      </div>
+      <div class="card"><div class="label">Messaggio pronto</div><div>${esc(inviteText())}</div><div><button class="btn-ghost" data-act="copy-text">Copia messaggio</button></div></div>
+      ${admin ? `<div class="card">
+        <label class="between" style="font-weight:600">Nuovi genitori da approvare <input type="checkbox" data-act="toggle-approval" ${S.team.require_approval ? "checked" : ""} style="width:24px;height:24px;min-height:0"></label>
+        <div class="small muted">Se attivo, chi entra con il link resta in attesa finché un amministratore non lo accetta.</div>
+        ${S.ui.confirm === "regen" ? `<span class="confirm">Il vecchio link smetterà di funzionare. <button class="btn-link danger" data-act="regen">Rigenera</button><button class="btn-link" data-act="cancel">Annulla</button></span>` : `<div><button class="btn-link danger" data-act="ask-regen">Rigenera invito</button></div>`}
+      </div>` : ""}`;
+  }
+  function drawQR() {
+    const el = document.getElementById("qr"); if (!el || !window.qrcode) return;
+    const q = window.qrcode(0, "M"); q.addData(inviteUrl()); q.make();
+    el.innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
+  }
+
+  // ----- tab mezzi -----
+  function tabVehicles() {
+    const lim = !premium() && S.vehicles.length >= 1;
+    return `<div class="notice small">Facoltativo: registra qui pulmini e auto dello staff, se la società ne ha. Potrai assegnarli alle trasferte; i posti si sommano a quelli dei genitori.</div>
+      <div class="card"><div class="label">Mezzi della società · ${S.vehicles.length}</div>
+        ${S.vehicles.length ? S.vehicles.map((v) => `<div class="member"><div style="flex:1"><b>${esc(v.name)}</b><div class="small muted">${v.seats} posti${v.active ? "" : " · non disponibile"}</div></div>
+          <button class="btn-link" data-act="veh-toggle" data-id="${v.id}">${v.active ? "Segna non disponibile" : "Segna disponibile"}</button>
+          ${S.ui.confirm === "veh:" + v.id ? `<button class="btn-link danger" data-act="veh-del" data-id="${v.id}">Conferma</button>` : `<button class="btn-link danger" data-act="ask-veh-del" data-id="${v.id}">Elimina</button>`}</div>`).join("") : `<div class="muted">Nessun mezzo registrato.</div>`}
+      </div>
+      ${lim ? `<div class="notice">Nel piano gratuito puoi registrare un mezzo. Con Premium: mezzi illimitati.</div>` : `<form class="card form" data-form="vehicle">
+        <label class="full">Nome<input name="name" required minlength="2" maxlength="60" placeholder="Es. Pulmino 9 posti"></label>
+        <label>Posti per gli atleti<input name="seats" type="number" min="1" max="60" required value="8"></label>
+        <div class="actions"><button class="btn-primary" type="submit">Aggiungi mezzo</button></div>
+      </form>`}`;
+  }
+
+  // ----- tab report CO2 -----
+  function computeReport() {
+    const t = S.team, perCar = Number(t.baseline_per_car) || 1.5, co2 = Number(t.co2_kg_per_km) || 0.12;
+    const past = S.events.filter((e) => new Date(e.starts_at).getTime() < Date.now());
+    const rows = past.map((e) => {
+      const bk = S.bookings.filter((b) => b.event_id === e.id);
+      const usedRides = S.rides.filter((r) => r.event_id === e.id && bk.some((b) => b.ride_id === r.id));
+      const athletes = bk.length;
+      const baseline = athletes ? Math.ceil(athletes / perCar) : 0;
+      const used = usedRides.length;
+      const avoided = Math.max(0, baseline - used);
+      const km = e.km_round_trip ? Number(e.km_round_trip) : null;
+      return { e, athletes, used, club: usedRides.filter((r) => r.kind === "club").length, baseline, avoided, km, kmAvoided: km != null ? avoided * km : null, co2: km != null ? avoided * km * co2 : null };
+    });
+    const tot = rows.reduce((a, r) => ({ athletes: a.athletes + r.athletes, used: a.used + r.used, avoided: a.avoided + r.avoided, km: a.km + (r.kmAvoided || 0), co2: a.co2 + (r.co2 || 0), noKm: a.noKm + (r.km == null && r.athletes ? 1 : 0) }), { athletes: 0, used: 0, avoided: 0, km: 0, co2: 0, noKm: 0 });
+    return { rows, tot, perCar, co2 };
+  }
+  function tabReport() {
+    const { rows, tot, perCar, co2 } = computeReport();
+    const full = premium();
+    return `<div class="card">
+        <div class="between"><div><div class="label">Report di stagione · ${esc(S.team.season)}</div><h2>${esc(S.team.name)}</h2></div>
+          <div class="row noprint"><button class="btn-ghost" data-act="print">Stampa / PDF</button>${full ? `<button class="btn-ghost" data-act="csv">Esporta CSV</button>` : ""}</div></div>
+        <div class="bigstats">
+          <div><b>${fmt(rows.length)}</b>trasferte svolte</div>
+          <div><b>${fmt(tot.athletes)}</b>viaggi atleti organizzati</div>
+          <div><b>${fmt(tot.avoided)}</b>auto evitate</div>
+          <div><b>${fmt(tot.km)}</b>km evitati</div>
+          <div><b>${fmt(tot.co2 / 1000, 2)} t</b>CO2 evitata</div>
+        </div>
+        ${tot.noKm ? `<div class="notice small">${tot.noKm} trasferte senza km indicati: non entrano nel calcolo di km e CO2. Aggiungili modificando la trasferta.</div>` : ""}
+      </div>
+      ${full ? `<div class="card"><div class="label">Dettaglio per trasferta</div><div class="tablewrap"><table>
+        <thead><tr><th>Data</th><th>Trasferta</th><th class="num">Atleti</th><th class="num">Mezzi usati</th><th class="num">Auto evitate</th><th class="num">Km A/R</th><th class="num">CO2 kg</th></tr></thead>
+        <tbody>${rows.map((r) => { const p = dateParts(r.e.starts_at); return `<tr><td>${p.day} ${p.mon}</td><td>${esc(r.e.title)}</td><td class="num">${r.athletes}</td><td class="num">${r.used}${r.club ? ` <span class="muted">(${r.club} soc.)</span>` : ""}</td><td class="num">${r.avoided}</td><td class="num">${r.km != null ? fmt(r.km) : "—"}</td><td class="num">${r.co2 != null ? fmt(r.co2) : "—"}</td></tr>`; }).join("") || `<tr><td colspan="7" class="muted">Nessuna trasferta conclusa.</td></tr>`}</tbody>
+      </table></div></div>` : `<div class="notice">Dettaglio per trasferta ed esportazione disponibili con Premium.</div>`}
+      <div class="card small"><div class="label">Metodologia</div>
+        <div>Il report è un consuntivo calcolato sui viaggi registrati nell'app: per ogni trasferta conclusa si contano gli atleti con un posto prenotato e i mezzi effettivamente usati (auto dei genitori e mezzi della società con almeno un atleta a bordo).</div>
+        <div>Auto che sarebbero servite senza coordinamento = atleti ÷ ${fmt(perCar, 1)} (arrotondato per eccesso). Auto evitate = auto senza coordinamento − mezzi usati. Km evitati = auto evitate × km andata e ritorno della trasferta. CO2 = km evitati × ${fmt(co2, 3)} kg/km.</div>
+        <div class="muted">Parametri modificabili nella sezione Squadra. Ogni mezzo della società è conteggiato come un veicolo.</div>
+      </div>`;
+  }
+  function exportCSV() {
+    const { rows } = computeReport();
+    const head = ["data", "trasferta", "atleti", "mezzi_usati", "di_cui_societa", "auto_evitate", "km_andata_ritorno", "km_evitati", "co2_kg"];
+    const q = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
+    const lines = [head.join(";")].concat(rows.map((r) => [dateParts(r.e.starts_at).ymd, q(r.e.title), r.athletes, r.used, r.club, r.avoided, r.km ?? "", r.kmAvoided ?? "", r.co2 != null ? r.co2.toFixed(1).replace(".", ",") : ""].join(";")));
+    const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `report-co2-${S.team.name.replace(/\W+/g, "-")}.csv`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  // ----- tab impostazioni squadra -----
+  function tabSettings() {
+    const t = S.team, sp = S.ui.editSport || t.sport;
+    return `<form class="card form" data-form="team-settings">
+        <div class="full stack" style="gap:8px"><div class="label">Sport</div>
+          <div class="pill-group" role="radiogroup" aria-label="Sport">${SPORT_ORDER.map((k) => `<button type="button" class="pill" role="radio" aria-checked="${k === sp}" data-act="edit-sport" data-v="${k}">${esc(SPORTS[k].label)}</button>`).join("")}</div></div>
+        <label class="full">Nome squadra<input name="name" required minlength="2" maxlength="80" value="${esc(t.name)}"></label>
+        <label>Categoria<input name="category" maxlength="40" value="${esc(t.category)}"></label>
+        <label>Stagione<input name="season" maxlength="20" value="${esc(t.season)}"></label>
+        <label>Atleti per auto senza coordinamento<input name="perCar" type="number" min="1" max="4" step="0.1" value="${t.baseline_per_car}"></label>
+        <label>CO2 per km (kg)<input name="co2" type="number" min="0" max="1" step="0.001" value="${t.co2_kg_per_km}"></label>
+        <div class="actions"><button class="btn-primary" type="submit">Salva</button></div>
+      </form>
+      <div class="card"><div class="label">Piano</div><div>${t.plan === "beta" ? "Beta: tutte le funzioni Premium attive" : t.plan === "premium" ? "Premium" : "Gratuito"}</div></div>
+      <div class="card"><div class="label">Zona pericolosa</div>
+        ${S.ui.confirm === "del-team" ? `<span class="confirm">Eliminare squadra, trasferte e prenotazioni? Non si può annullare. <button class="btn-link danger" data-act="del-team">Elimina definitivamente</button><button class="btn-link" data-act="cancel">Annulla</button></span>` : `<div><button class="btn-danger" data-act="ask-del-team">Elimina la squadra</button></div>`}
+      </div>`;
+  }
+
+  // ---------- azioni ----------
+  async function reloadTeam() { await loadTeam(S.team.id); renderTeam(); }
+  const closeForms = () => { S.ui.offer = S.ui.book = S.ui.club = S.ui.editEvent = S.ui.newEvent = S.ui.confirm = null; };
+
+  document.addEventListener("click", async (ev) => {
+    const b = ev.target.closest("[data-act]"); if (!b) return;
+    const act = b.dataset.act, id = b.dataset.id;
+    const simple = {
+      "login-restart": () => { S.ui.loginEmail = null; viewLogin(); },
+      "code-open": () => { S.ui.codeOpen = true; viewHome(); },
+      "code-close": () => { S.ui.codeOpen = false; viewHome(); },
+      "pick-sport": () => { const f = b.closest("form"); const keep = f ? Object.fromEntries(new FormData(f)) : {}; S.ui.newSport = b.dataset.v; viewNewTeam(); const nf = document.querySelector('[data-form="new-team"]'); for (const k in keep) if (nf.elements[k]) nf.elements[k].value = keep[k]; },
+      "edit-sport": () => { S.ui.editSport = b.dataset.v; document.querySelectorAll('[data-act="edit-sport"]').forEach((x) => x.setAttribute("aria-checked", String(x === b))); },
+      "cancel": () => { closeForms(); renderTeam(); },
+      "new-event": () => { closeForms(); S.ui.newEvent = true; renderTeam(); },
+      "edit-event": () => { closeForms(); S.ui.editEvent = id; renderTeam(); },
+      "offer": () => { closeForms(); S.ui.offer = id; renderTeam(); },
+      "club": () => { closeForms(); S.ui.club = id; renderTeam(); },
+      "book": () => { closeForms(); S.ui.book = id; renderTeam(); },
+      "toggle-past": () => { S.showPast = !S.showPast; renderTeam(); },
+      "ai-open": () => { S.ui.ai = true; S.aiPreview = null; renderTeam(); },
+      "ai-close": () => { S.ui.ai = false; S.aiPreview = null; renderTeam(); },
+      "ai-reset": () => { S.aiPreview = null; renderTeam(); },
+      "print": () => window.print(),
+      "csv": () => exportCSV(),
+      "copy-link": () => copy(inviteUrl()),
+      "copy-text": () => copy(inviteText())
+    };
+    if (simple[act]) return simple[act]();
+    if (act.startsWith("ask-")) { const map = { "ask-del-event": "event:" + id, "ask-del-ride": "ride:" + id, "ask-remove-member": "member:" + id, "ask-leave": "leave", "ask-regen": "regen", "ask-veh-del": "veh:" + id, "ask-del-team": "del-team" }; S.ui.confirm = map[act]; return renderTeam(); }
+
+    b.disabled = true;
+    try {
+      if (act === "logout") { await sb.auth.signOut(); S.profile = null; location.hash = "#/"; return; }
+      if (act === "unbook") { const { error } = await sb.from("bookings").delete().eq("id", id); if (error) throw error; toast("Posto liberato"); }
+      if (act === "del-ride") { const { error } = await sb.from("rides").delete().eq("id", id); if (error) throw error; toast("Mezzo ritirato"); }
+      if (act === "del-event") { const { error } = await sb.from("events").delete().eq("id", id); if (error) throw error; toast("Trasferta eliminata"); }
+      if (act === "approve") { const { error } = await sb.from("team_members").update({ status: "active" }).eq("team_id", S.team.id).eq("user_id", id); if (error) throw error; toast("Genitore accettato"); }
+      if (act === "reject" || act === "remove-member") { const { error } = await sb.from("team_members").delete().eq("team_id", S.team.id).eq("user_id", id); if (error) throw error; toast(act === "reject" ? "Richiesta rifiutata" : "Membro rimosso"); }
+      if (act === "toggle-admin") { const m = S.members.find((x) => x.user_id === id); const { error } = await sb.from("team_members").update({ role: m.role === "admin" ? "parent" : "admin" }).eq("team_id", S.team.id).eq("user_id", id); if (error) throw error; }
+      if (act === "leave") { const { error } = await sb.rpc("leave_team", { p_team: S.team.id }); if (error) throw error; unsubscribe(); location.hash = "#/"; toast("Hai lasciato la squadra"); return; }
+      if (act === "toggle-approval") { const { error } = await sb.from("teams").update({ require_approval: b.checked }).eq("id", S.team.id); if (error) throw error; toast(b.checked ? "Approvazione attiva" : "Approvazione disattivata"); }
+      if (act === "regen") { const { error } = await sb.rpc("regenerate_invite", { p_team: S.team.id }); if (error) throw error; toast("Nuovo invito creato"); }
+      if (act === "veh-toggle") { const v = S.vehicles.find((x) => x.id === id); const { error } = await sb.from("vehicles").update({ active: !v.active }).eq("id", id); if (error) throw error; }
+      if (act === "veh-del") { const { error } = await sb.from("vehicles").delete().eq("id", id); if (error) throw error; toast("Mezzo eliminato"); }
+      if (act === "del-team") { const { error } = await sb.from("teams").delete().eq("id", S.team.id); if (error) throw error; unsubscribe(); location.hash = "#/"; toast("Squadra eliminata"); return; }
+      closeForms(); await reloadTeam();
+    } catch (e) { toast(errMsg(e)); b.disabled = false; if (act === "toggle-approval") b.checked = !b.checked; }
+  });
+
+  document.addEventListener("change", (ev) => {
+    const sel = ev.target.closest('select[name="vehicle"]');
+    if (sel) { const o = sel.selectedOptions[0]; const f = sel.form; if (o && f.elements.seats) f.elements.seats.value = o.dataset.seats; }
+  });
+
+  async function copy(text) {
+    try { await navigator.clipboard.writeText(text); toast("Copiato"); }
+    catch (e) { prompt("Copia il testo:", text); }
+  }
+
+  document.addEventListener("submit", async (ev) => {
+    const f = ev.target; ev.preventDefault();
+    const kind = f.dataset.form; if (!kind) return;
+    const fd = new FormData(f); const v = (k) => String(fd.get(k) ?? "").trim();
+    const btn = f.querySelector('button[type="submit"]'); if (btn) btn.disabled = true;
+    try {
+      if (kind === "login-email") {
+        const email = v("email");
+        const redirect = location.origin + location.pathname;
+        const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: redirect, shouldCreateUser: true } });
+        if (error) throw error;
+        S.ui.loginEmail = email; viewLogin(); return;
+      }
+      if (kind === "login-code") {
+        const { error } = await sb.auth.verifyOtp({ email: S.ui.loginEmail, token: v("code"), type: "email" });
+        if (error) { toast("Codice non valido o scaduto"); if (btn) btn.disabled = false; return; }
+        S.ui.loginEmail = null; return;
+      }
+      if (kind === "profile-name") {
+        const { error } = await sb.from("profiles").update({ display_name: v("name") }).eq("id", S.user.id); if (error) throw error;
+        S.profile.display_name = v("name"); toast("Salvato"); route(); return;
+      }
+      if (kind === "code-join") { S.ui.codeOpen = false; location.hash = "#/join/" + encodeURIComponent(v("code").toUpperCase()); return; }
+      if (kind === "join") {
+        const { data, error } = await sb.rpc("join_team", { p_code: f.dataset.code, p_athletes: v("athletes") }); if (error) throw error;
+        const r = data && data[0];
+        if (r && r.status === "pending") { toast("Richiesta inviata: attendi l'approvazione"); location.hash = "#/"; }
+        else { toast("Benvenuto in squadra!"); location.hash = "#/t/" + r.team_id + "/trasferte"; }
+        return;
+      }
+      if (kind === "new-team") {
+        const { data, error } = await sb.rpc("create_team", { p_name: v("name"), p_sport: S.ui.newSport || "basket", p_category: v("category"), p_season: v("season"), p_athletes: v("athletes") });
+        if (error) throw error;
+        S.ui.newSport = null; toast("Squadra creata"); location.hash = "#/t/" + data.id + "/invita"; return;
+      }
+      if (kind === "event") {
+        const row = { team_id: S.team.id, title: v("title"), starts_at: toISO(v("date"), v("time")), place: v("place"), notes: v("notes"), km_round_trip: v("km") ? Number(v("km")) : null };
+        const q = f.dataset.id ? sb.from("events").update(row).eq("id", f.dataset.id) : sb.from("events").insert({ ...row, created_by: S.user.id });
+        const { error } = await q; if (error) throw error; toast(f.dataset.id ? "Trasferta aggiornata" : "Trasferta aggiunta");
+      }
+      if (kind === "offer") {
+        const { error } = await sb.from("rides").insert({ event_id: f.dataset.id, team_id: S.team.id, kind: "parent", driver_user_id: S.user.id, driver_name: S.profile.display_name, seats: Number(v("seats")), depart_time: v("time"), depart_from: v("from"), notes: v("notes"), return_trip: fd.get("back") === "on", created_by: S.user.id });
+        if (error) throw error; toast("Passaggio pubblicato");
+      }
+      if (kind === "club") {
+        const { error } = await sb.from("rides").insert({ event_id: f.dataset.id, team_id: S.team.id, kind: "club", vehicle_id: v("vehicle"), driver_name: v("driver"), seats: Number(v("seats")), depart_time: v("time"), depart_from: v("from"), return_trip: fd.get("back") === "on", assignment: v("assignment"), created_by: S.user.id });
+        if (error) throw error; toast("Mezzo aggiunto");
+      }
+      if (kind === "book") {
+        const { error } = await sb.rpc("book_seat", { p_ride: f.dataset.id, p_athlete: v("athlete"), p_pickup: v("pickup") });
+        if (error) throw error; toast("Posto confermato");
+      }
+      if (kind === "my-athletes") { const { error } = await sb.from("team_members").update({ athletes: v("athletes") }).eq("team_id", S.team.id).eq("user_id", S.user.id); if (error) throw error; toast("Salvato"); }
+      if (kind === "vehicle") { const { error } = await sb.from("vehicles").insert({ team_id: S.team.id, name: v("name"), seats: Number(v("seats")) }); if (error) throw error; toast("Mezzo aggiunto"); }
+      if (kind === "team-settings") {
+        const { error } = await sb.from("teams").update({ name: v("name"), category: v("category"), season: v("season"), sport: S.ui.editSport || S.team.sport, baseline_per_car: Number(v("perCar")) || 1.5, co2_kg_per_km: Number(v("co2")) || 0.12 }).eq("id", S.team.id);
+        if (error) throw error; S.ui.editSport = null; toast("Salvato");
+      }
+      if (kind === "ai") {
+        const file = fd.get("file"); const text = v("text");
+        if ((!file || !file.size) && !text) { toast("Carica un file o incolla il testo"); if (btn) btn.disabled = false; return; }
+        if (file && file.size > 5 * 1024 * 1024) { toast("File troppo grande (max 5 MB)"); if (btn) btn.disabled = false; return; }
+        if (btn) btn.textContent = "Sto leggendo…";
+        const body = { team_id: S.team.id, team_name: S.team.name, sport: S.team.sport, season: S.team.season };
+        if (file && file.size) { body.media_type = file.type; body.data = await fileToBase64(file); } else body.text = text;
+        const { data, error } = await sb.functions.invoke("import-calendar", { body });
+        if (error) throw error;
+        if (!data || !Array.isArray(data.events) || !data.events.length) { toast("Nessuna partita trovata nel documento"); if (btn) { btn.disabled = false; btn.textContent = "Leggi il calendario"; } return; }
+        S.aiPreview = data.events; renderTeam(); return;
+      }
+      if (kind === "ai-confirm") {
+        const picks = fd.getAll("pick").map(Number);
+        const rows = picks.map((i) => { const e = S.aiPreview[i]; const km = fd.get("km-" + i); return { team_id: S.team.id, title: String(e.title).slice(0, 120), starts_at: toISO(e.date, e.time), place: String(e.place || "").slice(0, 200), notes: "", km_round_trip: km ? Number(km) : null, created_by: S.user.id }; });
+        if (!rows.length) { toast("Seleziona almeno una trasferta"); if (btn) btn.disabled = false; return; }
+        const { error } = await sb.from("events").insert(rows); if (error) throw error;
+        toast(rows.length === 1 ? "1 trasferta aggiunta" : rows.length + " trasferte aggiunte"); S.ui.ai = false; S.aiPreview = null;
+      }
+      closeForms(); await reloadTeam();
+    } catch (e) { toast(errMsg(e)); if (btn) { btn.disabled = false; if (kind === "ai") btn.textContent = "Leggi il calendario"; } }
+  });
+
+  init();
+})();
