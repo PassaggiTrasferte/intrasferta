@@ -169,10 +169,12 @@
 
   function topBar({ title, sub, back, tabs, active, teamId }) {
     return `<header class="top"><div class="in">
-      ${back ? `<a class="iconbtn" href="${back}" aria-label="Indietro"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></a>` : `<a class="brand" href="#/" aria-label="Carpoolino, home"><img src="icon.svg" alt="" width="30" height="30"><img src="logo.svg" alt="" class="wordmark"></a>`}
-      <div class="grow">${title ? `<div class="title">${esc(title)}</div>` : ""}${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</div>
+      ${back ? `<a class="iconbtn" href="${back}" aria-label="Indietro"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></a>` : ""}
+      <a class="brand" href="#/" aria-label="Carpoolino, home"><img src="icon.svg" alt="" width="38" height="38"><img src="logo.svg" alt="" class="wordmark"></a>
+      <div class="grow"></div>
       <a class="iconbtn ring" href="#/profilo" aria-label="Profilo">${esc(initials(S.profile?.display_name))}</a>
     </div>
+    ${title || sub ? `<div class="in titlerow"><div class="grow">${title ? `<div class="title">${esc(title)}</div>` : ""}${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</div></div>` : ""}
     ${tabs ? `<nav class="tabs" aria-label="Sezioni squadra">${tabs.map(([k, l]) => `<a href="#/t/${teamId}/${k}" ${k === active ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav>` : ""}
     </header>`;
   }
@@ -288,7 +290,10 @@
     $app.innerHTML = topBar({ title: "Amministrazione", back: "#/profilo" }) + `<div class="wrap"><div class="boot">Calcolo gli indicatori…</div></div>`;
     const { data, error } = await sb.rpc("admin_stats");
     if (error || !data) { $app.innerHTML = topBar({ title: "Amministrazione", back: "#/profilo" }) + `<div class="wrap"><div class="empty"><strong>Dati non disponibili</strong>${esc(errMsg(error))}</div></div>`; return; }
-    S.adminData = data; renderAdmin();
+    S.adminData = data;
+    const [l, r] = await Promise.all([sb.from("sponsors").select("*").eq("scope", "platform").order("created_at"), sb.rpc("sponsor_report", { p_team: null })]);
+    S.platSponsors = l.data || []; S.platSponsorStats = r.data || [];
+    renderAdmin();
   }
   const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
   const ago = (iso) => { if (!iso) return "—"; const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400e3); return d <= 0 ? "oggi" : d === 1 ? "ieri" : d + " giorni fa"; };
@@ -330,6 +335,10 @@
         <div class="tablewrap"><table><thead><tr><th>Squadra</th><th class="num">Membri</th><th class="num">Trasferte</th><th class="num">Auto</th><th class="num">Posti</th><th class="num">AI</th><th>Ultima attività</th></tr></thead>
         <tbody>${list.map((t) => `<tr><td><b>${esc(t.name)}</b><div class="small muted">${esc(sportName(t.sport))}${t.category ? " · " + esc(t.category) : ""} · ${esc(t.plan)}${t.pending ? " · " + t.pending + " in attesa" : ""}</div></td><td class="num">${t.members}</td><td class="num">${t.events}${t.events_upcoming ? ` <span class="muted">(${t.events_upcoming})</span>` : ""}</td><td class="num">${t.rides}</td><td class="num">${t.bookings}</td><td class="num">${t.ai_imports}</td><td>${ago(t.last_activity)}</td></tr>`).join("") || `<tr><td colspan="7" class="muted">Nessuna squadra.</td></tr>`}</tbody></table></div>
         <div class="small muted">Trasferte: totale (in programma). Squadre "attive": almeno un'auto o una prenotazione e attività negli ultimi 30 giorni.</div></div>
+      <div class="card"><div class="between"><div class="label">Sponsor della piattaforma · ${(S.platSponsors || []).length}</div>${S.ui.spEdit ? "" : `<button class="btn-primary" data-act="sp-new">+ Aggiungi</button>`}</div>
+        <div class="small muted">Compaiono alle squadre degli sport scelti, salvo le squadre Premium che hanno sponsor propri attivi.</div>
+        ${sponsorList(S.platSponsors || [], S.platSponsorStats, "platform")}</div>
+      ${S.ui.spEdit ? sponsorForm(S.ui.spEdit === "new" ? null : (S.platSponsors || []).find((x) => x.id === S.ui.spEdit), "platform") : ""}
       <button class="btn-ghost" data-act="admin-refresh">Aggiorna</button>
     </div>` + footer();
   }
@@ -366,6 +375,7 @@
     const prof = memberIds.length ? (await sb.from("profiles").select("id,display_name,phone").in("id", memberIds)).data || [] : [];
     S.members = (mem.data || []).map((m) => { const pr = prof.find((p) => p.id === m.user_id) || {}; return { ...m, name: pr.display_name || "Genitore", phone: pr.phone || "" }; });
     S.events = ev.data || []; S.rides = ri.data || []; S.bookings = bo.data || []; S.vehicles = ve.data || []; S.requests = rq.data || [];
+    try { S.sponsors = (await sb.rpc("get_sponsors", { p_team: id })).data || []; } catch (e) { S.sponsors = []; }
     return true;
   }
 
@@ -406,7 +416,9 @@
 
   function teamTabs() {
     const tabs = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"]];
-    if (isAdmin()) tabs.push(["mezzi", "Mezzi"], ["report", "Report"], ["impostazioni", "Squadra"]);
+    if (isAdmin()) tabs.push(["mezzi", "Mezzi"], ["report", "Report"]);
+    if (isAdmin() && premium()) tabs.push(["sponsor", "Sponsor"]);
+    if (isAdmin()) tabs.push(["impostazioni", "Squadra"]);
     return tabs;
   }
 
@@ -415,11 +427,13 @@
     const tabs = teamTabs();
     if (!tabs.some(([k]) => k === currentTab)) currentTab = "trasferte";
     const head = topBar({ title: t.name, sub: `${sportOf(t).label}${t.category ? " · " + t.category : ""} · ${t.season}`, back: "#/", tabs, active: currentTab, teamId: t.id });
-    const body = { trasferte: tabTrips, membri: tabMembers, invita: tabInvite, mezzi: tabVehicles, report: tabReport, impostazioni: tabSettings }[currentTab]();
+    const body = { trasferte: tabTrips, membri: tabMembers, invita: tabInvite, mezzi: tabVehicles, report: tabReport, sponsor: tabSponsors, impostazioni: tabSettings }[currentTab]();
     const y = window.scrollY;
     $app.innerHTML = head + `<div class="wrap">${waPanel()}${t.plan === "beta" && isAdmin() && currentTab === "trasferte" ? `<div class="notice small">Versione beta: tutte le funzioni Premium sono attive gratuitamente.</div>` : ""}${body}</div>` + footer();
     window.scrollTo(0, y);
     if (currentTab === "invita") drawQR();
+    countSponsorViews();
+    if (currentTab === "sponsor" && !S.teamSponsorsLoaded) loadTeamSponsors();
   }
 
   // ----- avviso WhatsApp dopo un'azione -----
@@ -451,10 +465,95 @@
         ${S.ui.newEvent ? "" : `<button class="btn-primary" data-act="new-event">+ Aggiungi trasferta</button>`}
         ${admin && premium() ? `<button class="btn-ghost" data-act="ai-open">Importa calendario con l'AI</button>` : ""}
       </div>` : ""}
+      ${savingsCard()}
       ${S.ui.newEvent ? eventForm(null, L) : ""}
       ${S.ui.ai ? aiPanel() : ""}
       ${up.length ? up.map((e) => tripCard(e, false)).join("") : `<div class="empty"><strong>Nessuna trasferta in programma</strong>${admin ? "Aggiungi la prossima trasferta o importa il calendario." : "Quando l'amministratore aggiunge una trasferta, comparirà qui."}</div>`}
-      ${past.length ? `<button class="btn-link" data-act="toggle-past">${S.showPast ? "Nascondi" : "Mostra"} trasferte passate (${past.length})</button>${S.showPast ? past.map((e) => tripCard(e, true)).join("") : ""}` : ""}`;
+      ${past.length ? `<button class="btn-link" data-act="toggle-past">${S.showPast ? "Nascondi" : "Mostra"} trasferte passate (${past.length})</button>${S.showPast ? past.map((e) => tripCard(e, true)).join("") : ""}` : ""}
+      ${sponsorStrip()}`;
+  }
+
+  // ----- risparmio (visibile a tutti) -----
+  function computeSavings() {
+    const t = S.team, cost = Number(t.cost_per_km ?? 0.15), co2k = Number(t.co2_kg_per_km) || 0.12, me = S.user.id;
+    const { tot } = computeReport();
+    const past = S.events.filter((e) => new Date(e.starts_at).getTime() < Date.now() && e.km_round_trip);
+    let famKm = 0, famTrips = 0, given = 0;
+    past.forEach((e) => {
+      const mine = S.bookings.filter((b) => b.event_id === e.id && b.booked_by === me);
+      const inOthers = mine.map((b) => S.rides.find((r) => r.id === b.ride_id)).filter((r) => r && r.created_by !== me);
+      if (inOthers.length) { famTrips++; famKm += Number(e.km_round_trip) * (inOthers.some((r) => r.return_trip) ? 1 : 0.5); }
+      S.rides.filter((r) => r.event_id === e.id && r.created_by === me).forEach((r) => { given += S.bookings.filter((b) => b.ride_id === r.id && b.booked_by !== me).length; });
+    });
+    return { cost, co2k, fam: { km: famKm, eur: famKm * cost, co2: famKm * co2k, trips: famTrips, given }, team: { avoided: tot.avoided, km: tot.km, eur: tot.km * cost, co2: tot.co2 } };
+  }
+  function savingsCard() {
+    const v = computeSavings();
+    const empty = !v.team.km && !v.fam.km && !v.fam.given;
+    return `<div class="card savings">
+      <div class="label">🌱 Il risparmio di questa stagione</div>
+      ${empty ? `<div class="small muted">Il conteggio parte dalle prime trasferte concluse con i km indicati: qui vedrai km, euro e CO₂ risparmiati dalla tua famiglia e dalla squadra.</div>` : `
+      <div class="small"><b>La tua famiglia</b>${v.fam.given ? ` · hai accompagnato ${v.fam.given} ${v.fam.given === 1 ? "atleta" : "atleti"} di altre famiglie` : ""}</div>
+      <div class="stats"><div><b>${fmt(v.fam.km)}</b>km non guidati</div><div><b>${fmt(v.fam.eur)} €</b>risparmiati</div><div><b>${fmt(v.fam.co2)} kg</b>CO₂ evitata</div></div>
+      <div class="small"><b>La squadra</b></div>
+      <div class="stats"><div><b>${fmt(v.team.avoided)}</b>auto evitate</div><div><b>${fmt(v.team.km)}</b>km evitati</div><div><b>${fmt(v.team.eur)} €</b>risparmiati</div><div><b>${fmt(v.team.co2)} kg</b>CO₂ evitata</div></div>`}
+      <div class="small muted">Stima: ${fmt(v.cost, 2)} € e ${fmt(v.co2k, 3)} kg di CO₂ per km (solo carburante). Contano le trasferte concluse con i km indicati.</div>
+    </div>`;
+  }
+
+  // ----- sponsor -----
+  const logoUrl = (path) => path ? CFG.SUPABASE_URL + "/storage/v1/object/public/sponsor-logos/" + path.split("/").map(encodeURIComponent).join("/") : "";
+  function sponsorStrip() {
+    const L = S.sponsors || []; if (!L.length) return "";
+    return `<div class="sponsors noprint"><div class="label">Con il supporto di</div><div class="sp-row">${L.map((sp) => {
+      const inner = `${sp.logo_path ? `<img src="${esc(logoUrl(sp.logo_path))}" alt="${esc(sp.name)}" loading="lazy">` : `<b>${esc(sp.name)}</b>`}${sp.message ? `<span>${esc(sp.message)}</span>` : ""}`;
+      return sp.link_url ? `<a class="sp" href="${esc(sp.link_url)}" target="_blank" rel="noopener sponsored" data-sp="${sp.id}">${inner}</a>` : `<div class="sp">${inner}</div>`;
+    }).join("")}</div></div>`;
+  }
+  function countSponsorViews() {
+    if (!S.team || !(S.sponsors || []).length || !document.querySelector(".sponsors")) return;
+    S.sponsors.forEach((sp) => { const k = "sp-v-" + sp.id + "-" + S.team.id; let seen = null; try { seen = sessionStorage.getItem(k); } catch (e) {}
+      if (!seen) { try { sessionStorage.setItem(k, "1"); } catch (e) {} sb.rpc("sponsor_hit", { p_sponsor: sp.id, p_team: S.team.id, p_kind: "view" }).then(() => {}, () => {}); } });
+  }
+  document.addEventListener("click", (ev) => { const a = ev.target.closest("a[data-sp]"); if (a && S.team) sb.rpc("sponsor_hit", { p_sponsor: a.dataset.sp, p_team: S.team.id, p_kind: "click" }).then(() => {}, () => {}); });
+
+  function sponsorForm(sp, scope) {
+    const sports = sp?.sports || [];
+    return `<form class="card form" data-form="sponsor" data-scope="${scope}" data-id="${sp ? sp.id : ""}">
+      <h3 class="full">${sp ? "Modifica sponsor" : "Nuovo sponsor"}</h3>
+      <label class="full">Nome<input name="name" required minlength="2" maxlength="80" value="${esc(sp?.name || "")}" placeholder="Es. Pizzeria Da Mario"></label>
+      <label class="full">Messaggio breve (facoltativo)<input name="message" maxlength="140" value="${esc(sp?.message || "")}" placeholder="Es. Sconto 10% per le famiglie della squadra"></label>
+      <label class="full">Sito o pagina (facoltativo)<input name="link" type="url" maxlength="300" value="${esc(sp?.link_url || "")}" placeholder="https://…"></label>
+      <label class="full">Logo (PNG, JPG o WEBP · max 1 MB)<input name="logo" type="file" accept="image/png,image/jpeg,image/webp"></label>
+      ${sp?.logo_path ? `<div class="full small muted">Logo attuale: <img src="${esc(logoUrl(sp.logo_path))}" alt="" style="height:28px;vertical-align:middle"> (carica un file solo per sostituirlo)</div>` : ""}
+      ${scope === "platform" ? `<div class="full stack" style="gap:8px"><div class="label">Sport in cui mostrarlo (nessuno selezionato = tutti)</div>
+        <div class="pill-group">${SPORT_ORDER.map((k) => `<label class="pill check-pill"><input type="checkbox" name="sports" value="${k}" ${sports.includes(k) ? "checked" : ""}> ${esc(SPORTS[k].label)}</label>`).join("")}</div></div>` : ""}
+      <label>Dal (facoltativo)<input name="from" type="date" value="${esc(sp?.starts_on || "")}"></label>
+      <label>Al (facoltativo)<input name="to" type="date" value="${esc(sp?.ends_on || "")}"></label>
+      <label class="full check"><input name="active" type="checkbox" ${!sp || sp.active ? "checked" : ""}> Attivo</label>
+      <div class="actions"><button class="btn-primary" type="submit">${sp ? "Salva" : "Aggiungi sponsor"}</button><button class="btn-ghost" type="button" data-act="sp-cancel">Annulla</button></div>
+    </form>`;
+  }
+  function sponsorList(list, stats, scope) {
+    const st = (id) => (stats || []).find((x) => x.sponsor_id === id) || { views: 0, clicks: 0, views_30d: 0, clicks_30d: 0 };
+    const today = new Date().toISOString().slice(0, 10);
+    return list.length ? list.map((sp) => { const x = st(sp.id); const live = sp.active && (!sp.starts_on || sp.starts_on <= today) && (!sp.ends_on || sp.ends_on >= today);
+      return `<div class="member">${sp.logo_path ? `<img src="${esc(logoUrl(sp.logo_path))}" alt="" class="sp-thumb">` : `<div class="avatar">${esc(initials(sp.name))}</div>`}
+        <div style="flex:1;min-width:0"><b>${esc(sp.name)}</b> <span class="chip ${live ? "ok" : ""}">${live ? "visibile" : "non visibile"}</span>
+          <div class="small muted">${scope === "platform" ? (sp.sports && sp.sports.length ? sp.sports.map((k) => esc((SPORTS[k] || SPORTS.altro).label)).join(", ") : "tutti gli sport") + " · " : ""}${sp.starts_on || sp.ends_on ? `dal ${esc(sp.starts_on || "—")} al ${esc(sp.ends_on || "—")} · ` : ""}${fmt(x.views)} visualizzazioni, ${fmt(x.clicks)} clic (30 gg: ${fmt(x.views_30d)} / ${fmt(x.clicks_30d)})</div>
+          <div class="row">${S.ui.confirm === "sp:" + sp.id ? `<span class="confirm">Eliminare lo sponsor? <button class="btn-link danger" data-act="sp-del" data-id="${sp.id}" data-scope="${scope}">Sì</button><button class="btn-link" data-act="sp-cancel">No</button></span>` : `<button class="btn-link" data-act="sp-edit" data-id="${sp.id}" data-scope="${scope}">Modifica</button><button class="btn-link danger" data-act="sp-ask-del" data-id="${sp.id}" data-scope="${scope}">Elimina</button>`}</div></div></div>`; }).join("")
+      : `<div class="muted">Nessuno sponsor inserito.</div>`;
+  }
+  async function loadTeamSponsors() {
+    const [l, r] = await Promise.all([sb.from("sponsors").select("*").eq("scope", "team").eq("team_id", S.team.id).order("created_at"), sb.rpc("sponsor_report", { p_team: S.team.id })]);
+    S.teamSponsors = l.data || []; S.teamSponsorStats = r.data || []; S.teamSponsorsLoaded = true; renderTeam();
+  }
+  function tabSponsors() {
+    if (!S.teamSponsorsLoaded) return `<div class="boot">Carico gli sponsor…</div>`;
+    const editing = S.ui.spEdit === "new" ? null : (S.teamSponsors || []).find((x) => x.id === S.ui.spEdit);
+    return `<div class="notice small">Gli sponsor della società compaiono solo ai membri di questa squadra, in fondo alla lista delle trasferte e nel report. Finché ne hai almeno uno attivo, sostituiscono quelli di Carpoolino.</div>
+      ${S.ui.spEdit ? sponsorForm(editing, "team") : `<button class="btn-primary" data-act="sp-new">+ Aggiungi sponsor</button>`}
+      <div class="card"><div class="label">Sponsor della squadra · ${(S.teamSponsors || []).length}</div>${sponsorList(S.teamSponsors || [], S.teamSponsorStats, "team")}</div>`;
   }
 
   function eventForm(e, L) {
@@ -733,6 +832,7 @@
           <div><b>${fmt(tot.avoided)}</b>auto evitate</div>
           <div><b>${fmt(tot.km)}</b>km evitati</div>
           <div><b>${fmt(tot.co2 / 1000, 2)} t</b>CO2 evitata</div>
+          <div><b>${fmt(tot.km * Number(S.team.cost_per_km ?? 0.15))} €</b>risparmiati dalle famiglie</div>
         </div>
         ${tot.noKm ? `<div class="notice small">${tot.noKm} trasferte senza km indicati: non entrano nel calcolo di km e CO2. Aggiungili modificando la trasferta.</div>` : ""}
       </div>
@@ -742,9 +842,10 @@
       </table></div></div>` : `<div class="notice">Dettaglio per trasferta ed esportazione disponibili con Premium.</div>`}
       <div class="card small"><div class="label">Metodologia</div>
         <div>Il report è un consuntivo calcolato sui viaggi registrati nell'app: per ogni trasferta conclusa si contano gli atleti con un posto prenotato e i mezzi effettivamente usati (auto dei genitori e mezzi della società con almeno un atleta a bordo).</div>
-        <div>Auto che sarebbero servite senza coordinamento = atleti ÷ ${fmt(perCar, 1)} (arrotondato per eccesso). Auto evitate = auto senza coordinamento − mezzi usati. Km evitati = auto evitate × km andata e ritorno della trasferta. CO2 = km evitati × ${fmt(co2, 3)} kg/km.</div>
+        <div>Auto che sarebbero servite senza coordinamento = atleti ÷ ${fmt(perCar, 1)} (arrotondato per eccesso). Auto evitate = auto senza coordinamento − mezzi usati. Km evitati = auto evitate × km andata e ritorno della trasferta. CO2 = km evitati × ${fmt(co2, 3)} kg/km. Euro risparmiati = km evitati × ${fmt(Number(S.team.cost_per_km ?? 0.15), 2)} €/km (solo carburante).</div>
         <div class="muted">Parametri modificabili nella sezione Squadra. Ogni mezzo della società è conteggiato come un veicolo.</div>
-      </div>`;
+      </div>
+      ${sponsorStrip()}`;
   }
   function exportCSV() {
     const { rows } = computeReport();
@@ -767,6 +868,7 @@
         <label>Stagione<input name="season" maxlength="20" value="${esc(t.season)}"></label>
         <label>Atleti per auto senza coordinamento<input name="perCar" type="number" min="1" max="4" step="0.1" value="${t.baseline_per_car}"></label>
         <label>CO2 per km (kg)<input name="co2" type="number" min="0" max="1" step="0.001" value="${t.co2_kg_per_km}"></label>
+        <label>Costo per km (€)<input name="cost" type="number" min="0" max="2" step="0.01" value="${t.cost_per_km ?? 0.15}"></label>
         <div class="actions"><button class="btn-primary" type="submit">Salva</button></div>
       </form>
       <div class="card"><div class="label">Piano</div><div>${t.plan === "beta" ? "Beta: tutte le funzioni Premium attive" : t.plan === "premium" ? "Premium" : "Gratuito"}</div></div>
@@ -806,7 +908,11 @@
       "copy-text": () => copy(inviteText()),
       "admin-filter": () => { S.ui.adminFilter = b.dataset.v; renderAdmin(); },
       "admin-csv": () => adminCSV(),
-      "admin-refresh": () => viewAdmin()
+      "admin-refresh": () => viewAdmin(),
+      "sp-new": () => { S.ui.spEdit = "new"; S.ui.confirm = null; rerenderSp(); },
+      "sp-edit": () => { S.ui.spEdit = id; S.ui.confirm = null; rerenderSp(); },
+      "sp-cancel": () => { S.ui.spEdit = null; S.ui.confirm = null; rerenderSp(); },
+      "sp-ask-del": () => { S.ui.confirm = "sp:" + id; rerenderSp(); }
     };
     if (simple[act]) return simple[act]();
     if (act.startsWith("ask-")) { const map = { "ask-del-event": "event:" + id, "ask-del-ride": "ride:" + id, "ask-remove-member": "member:" + id, "ask-leave": "leave", "ask-regen": "regen", "ask-veh-del": "veh:" + id, "ask-del-team": "del-team" }; S.ui.confirm = map[act]; return renderTeam(); }
@@ -836,6 +942,12 @@
         const r = data && S.rides.find((x) => x.id === data.ride_id);
         if (q && e) { const L = tripLabel(e), m = member(q.requested_by); S.ui.wa = [{ to: firstName(m.name), phone: m.phone, text: `Ciao ${firstName(m.name)}, porto io ${q.athlete_name} a ${L.trip} (${L.d}). Parto da ${r ? r.depart_from || "—" : "—"}${r && r.depart_time ? " alle " + r.depart_time : ""}.` }]; }
       }
+      if (act === "sp-del") {
+        const sp = (b.dataset.scope === "platform" ? S.platSponsors : S.teamSponsors).find((x) => x.id === id);
+        const { error } = await sb.from("sponsors").delete().eq("id", id); if (error) throw error;
+        if (sp && sp.logo_path) sb.storage.from("sponsor-logos").remove([sp.logo_path]).then(() => {}, () => {});
+        toast("Sponsor eliminato"); S.ui.confirm = null; await reloadSponsors(b.dataset.scope); return;
+      }
       if (act === "del-req") { const { error } = await sb.from("ride_requests").delete().eq("id", id); if (error) throw error; toast("Richiesta ritirata"); }
       if (act === "del-event") { const { error } = await sb.from("events").delete().eq("id", id); if (error) throw error; toast("Trasferta eliminata"); }
       if (act === "approve") { const { error } = await sb.from("team_members").update({ status: "active" }).eq("team_id", S.team.id).eq("user_id", id); if (error) throw error; toast("Genitore accettato"); }
@@ -855,6 +967,13 @@
     const sel = ev.target.closest('select[name="vehicle"]');
     if (sel) { const o = sel.selectedOptions[0]; const f = sel.form; if (o && f.elements.seats) f.elements.seats.value = o.dataset.seats; }
   });
+
+  function rerenderSp() { if (location.hash.startsWith("#/admin")) renderAdmin(); else renderTeam(); }
+  async function reloadSponsors(scope) {
+    S.ui.spEdit = null;
+    if (scope === "platform") { const [l, r] = await Promise.all([sb.from("sponsors").select("*").eq("scope", "platform").order("created_at"), sb.rpc("sponsor_report", { p_team: null })]); S.platSponsors = l.data || []; S.platSponsorStats = r.data || []; renderAdmin(); }
+    else { S.teamSponsorsLoaded = false; try { S.sponsors = (await sb.rpc("get_sponsors", { p_team: S.team.id })).data || []; } catch (e) {} await loadTeamSponsors(); }
+  }
 
   async function copy(text) {
     try { await navigator.clipboard.writeText(text); toast("Copiato"); }
@@ -927,10 +1046,29 @@
         const r = S.rides.find((x) => x.id === f.dataset.id), e = r && S.events.find((x) => x.id === r.event_id);
         if (r && e && r.kind === "parent" && r.created_by !== S.user.id) { const L = tripLabel(e); S.ui.wa = [{ to: firstName(r.driver_name), phone: driverPhone(r), text: `Ciao ${firstName(r.driver_name)}, ho prenotato un posto per ${v("athlete")} nella tua auto per ${L.trip} (${L.d}).${v("pickup") ? " Sale a " + v("pickup") + "." : ""} Grazie!` }]; }
       }
+      if (kind === "sponsor") {
+        const scope = f.dataset.scope, file = fd.get("logo");
+        if (file && file.size > 1048576) { toast("Logo troppo grande (max 1 MB)"); if (btn) btn.disabled = false; return; }
+        const link = v("link");
+        if (link && !/^https?:\/\//i.test(link)) { toast("Il link deve iniziare con https://"); if (btn) btn.disabled = false; return; }
+        const row = { name: v("name"), message: v("message"), link_url: link, starts_on: v("from") || null, ends_on: v("to") || null, active: fd.get("active") === "on" };
+        if (scope === "platform") { const sp = fd.getAll("sports"); row.sports = sp.length ? sp : null; }
+        if (file && file.size) {
+          const ext = (file.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5);
+          const path = (scope === "platform" ? "platform" : S.team.id) + "/" + (crypto.randomUUID ? crypto.randomUUID() : Date.now()) + "." + ext;
+          const up = await sb.storage.from("sponsor-logos").upload(path, file, { contentType: file.type, upsert: false });
+          if (up.error) throw up.error;
+          row.logo_path = path;
+        }
+        const q = f.dataset.id ? sb.from("sponsors").update(row).eq("id", f.dataset.id)
+          : sb.from("sponsors").insert({ ...row, scope, team_id: scope === "team" ? S.team.id : null, created_by: S.user.id });
+        const { error } = await q; if (error) throw error;
+        toast(f.dataset.id ? "Sponsor aggiornato" : "Sponsor aggiunto"); await reloadSponsors(scope); return;
+      }
       if (kind === "my-athletes") { const { error } = await sb.from("team_members").update({ athletes: v("athletes") }).eq("team_id", S.team.id).eq("user_id", S.user.id); if (error) throw error; toast("Salvato"); }
       if (kind === "vehicle") { const { error } = await sb.from("vehicles").insert({ team_id: S.team.id, name: v("name"), seats: Number(v("seats")) }); if (error) throw error; toast("Mezzo aggiunto"); }
       if (kind === "team-settings") {
-        const { error } = await sb.from("teams").update({ name: v("name"), category: v("category"), season: v("season"), sport: S.ui.editSport || S.team.sport, baseline_per_car: Number(v("perCar")) || 1.5, co2_kg_per_km: Number(v("co2")) || 0.12 }).eq("id", S.team.id);
+        const { error } = await sb.from("teams").update({ name: v("name"), category: v("category"), season: v("season"), sport: S.ui.editSport || S.team.sport, baseline_per_car: Number(v("perCar")) || 1.5, co2_kg_per_km: Number(v("co2")) || 0.12, cost_per_km: v("cost") === "" ? 0.15 : Number(v("cost")) }).eq("id", S.team.id);
         if (error) throw error; S.ui.editSport = null; toast("Salvato");
       }
       if (kind === "ai") {
