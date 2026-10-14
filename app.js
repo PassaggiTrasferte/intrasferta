@@ -336,7 +336,7 @@
         <tbody>${list.map((t) => `<tr><td><b>${esc(t.name)}</b><div class="small muted">${esc(sportName(t.sport))}${t.category ? " · " + esc(t.category) : ""} · ${esc(t.plan)}${t.pending ? " · " + t.pending + " in attesa" : ""}</div></td><td class="num">${t.members}</td><td class="num">${t.events}${t.events_upcoming ? ` <span class="muted">(${t.events_upcoming})</span>` : ""}</td><td class="num">${t.rides}</td><td class="num">${t.bookings}</td><td class="num">${t.ai_imports}</td><td>${ago(t.last_activity)}</td></tr>`).join("") || `<tr><td colspan="7" class="muted">Nessuna squadra.</td></tr>`}</tbody></table></div>
         <div class="small muted">Trasferte: totale (in programma). Squadre "attive": almeno un'auto o una prenotazione e attività negli ultimi 30 giorni.</div></div>
       <div class="card"><div class="between"><div class="label">Sponsor della piattaforma · ${(S.platSponsors || []).length}</div>${S.ui.spEdit ? "" : `<button class="btn-primary" data-act="sp-new">+ Aggiungi</button>`}</div>
-        <div class="small muted">Compaiono alle squadre degli sport scelti, salvo le squadre Premium che hanno sponsor propri attivi.</div>
+        <div class="small muted">Compaiono a rotazione nel banner in cima alle trasferte delle squadre degli sport scelti (fino a 10 per squadra, in ordine casuale), salvo le squadre Premium con sponsor propri attivi.</div>
         ${sponsorList(S.platSponsors || [], S.platSponsorStats, "platform")}</div>
       ${S.ui.spEdit ? sponsorForm(S.ui.spEdit === "new" ? null : (S.platSponsors || []).find((x) => x.id === S.ui.spEdit), "platform") : ""}
       <button class="btn-ghost" data-act="admin-refresh">Aggiorna</button>
@@ -429,9 +429,11 @@
     const head = topBar({ title: t.name, sub: `${sportOf(t).label}${t.category ? " · " + t.category : ""} · ${t.season}`, back: "#/", tabs, active: currentTab, teamId: t.id });
     const body = { trasferte: tabTrips, membri: tabMembers, invita: tabInvite, mezzi: tabVehicles, report: tabReport, sponsor: tabSponsors, impostazioni: tabSettings }[currentTab]();
     const y = window.scrollY;
+    const curSp = document.querySelector(".sp-banner")?.dataset.cur;
     $app.innerHTML = head + `<div class="wrap">${waPanel()}${t.plan === "beta" && isAdmin() && currentTab === "trasferte" ? `<div class="notice small">Versione beta: tutte le funzioni Premium sono attive gratuitamente.</div>` : ""}${body}</div>` + footer();
     window.scrollTo(0, y);
     if (currentTab === "invita") drawQR();
+    if (curSp != null) { const nb = document.querySelector(".sp-banner"); if (nb) nb.dataset.cur = curSp; }
     countSponsorViews();
     if (currentTab === "sponsor" && !S.teamSponsorsLoaded) loadTeamSponsors();
   }
@@ -465,12 +467,12 @@
         ${S.ui.newEvent ? "" : `<button class="btn-primary" data-act="new-event">+ Aggiungi trasferta</button>`}
         ${admin && premium() ? `<button class="btn-ghost" data-act="ai-open">Importa calendario con l'AI</button>` : ""}
       </div>` : ""}
+      ${sponsorBanner()}
       ${savingsCard()}
       ${S.ui.newEvent ? eventForm(null, L) : ""}
       ${S.ui.ai ? aiPanel() : ""}
       ${up.length ? up.map((e) => tripCard(e, false)).join("") : `<div class="empty"><strong>Nessuna trasferta in programma</strong>${admin ? "Aggiungi la prossima trasferta o importa il calendario." : "Quando l'amministratore aggiunge una trasferta, comparirà qui."}</div>`}
-      ${past.length ? `<button class="btn-link" data-act="toggle-past">${S.showPast ? "Nascondi" : "Mostra"} trasferte passate (${past.length})</button>${S.showPast ? past.map((e) => tripCard(e, true)).join("") : ""}` : ""}
-      ${sponsorStrip()}`;
+      ${past.length ? `<button class="btn-link" data-act="toggle-past">${S.showPast ? "Nascondi" : "Mostra"} trasferte passate (${past.length})</button>${S.showPast ? past.map((e) => tripCard(e, true)).join("") : ""}` : ""}`;
   }
 
   // ----- risparmio (visibile a tutti) -----
@@ -510,10 +512,44 @@
       return sp.link_url ? `<a class="sp" href="${esc(sp.link_url)}" target="_blank" rel="noopener sponsored" data-sp="${sp.id}">${inner}</a>` : `<div class="sp">${inner}</div>`;
     }).join("")}</div></div>`;
   }
+  function sponsorBanner() {
+    const L = S.sponsors || []; if (!L.length) return "";
+    const slide = (sp, i) => {
+      const inner = `${sp.logo_path ? `<img src="${esc(logoUrl(sp.logo_path))}" alt="" loading="lazy">` : `<div class="avatar">${esc(initials(sp.name))}</div>`}
+        <div class="sp-txt"><b>${esc(sp.name)}</b>${sp.message ? `<span>${esc(sp.message)}</span>` : ""}</div>${sp.link_url ? `<span class="sp-go" aria-hidden="true">›</span>` : ""}`;
+      return sp.link_url ? `<a class="sp-slide${i === 0 ? " on" : ""}" href="${esc(sp.link_url)}" target="_blank" rel="noopener sponsored" data-sp="${sp.id}" data-i="${i}">${inner}</a>`
+        : `<div class="sp-slide${i === 0 ? " on" : ""}" data-sp-id="${sp.id}" data-i="${i}">${inner}</div>`;
+    };
+    return `<section class="sp-banner noprint" aria-label="Sponsor" aria-roledescription="carosello">
+      <div class="sp-tag">Sponsor</div>
+      <div class="sp-slides">${L.map(slide).join("")}</div>
+      ${L.length > 1 ? `<div class="sp-dots">${L.map((sp, i) => `<button type="button" class="${i === 0 ? "on" : ""}" data-act="sp-goto" data-v="${i}" aria-label="Sponsor ${i + 1} di ${L.length}"></button>`).join("")}</div>` : ""}
+    </section>`;
+  }
+  let spTimer = null;
+  function spShow(i) {
+    const el = document.querySelector(".sp-banner"); if (!el) return;
+    const slides = el.querySelectorAll(".sp-slide"), dots = el.querySelectorAll(".sp-dots button");
+    if (!slides.length) return; i = ((i % slides.length) + slides.length) % slides.length;
+    slides.forEach((s, k) => s.classList.toggle("on", k === i)); dots.forEach((d, k) => d.classList.toggle("on", k === i));
+    el.dataset.cur = i; const sp = (S.sponsors || [])[i]; if (sp) countView(sp);
+  }
+  function startSponsorRotation() {
+    clearInterval(spTimer); spTimer = null;
+    const el = document.querySelector(".sp-banner"); if (!el) return;
+    spShow(Number(el.dataset.cur || 0));
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if ((S.sponsors || []).length > 1 && !reduce) spTimer = setInterval(() => { if (document.hidden) return; const b = document.querySelector(".sp-banner"); if (!b) { clearInterval(spTimer); return; } spShow(Number(b.dataset.cur || 0) + 1); }, 5000);
+  }
+  function countView(sp) {
+    if (!S.team) return; const k = "sp-v-" + sp.id + "-" + S.team.id; let seen = null; try { seen = sessionStorage.getItem(k); } catch (e) {}
+    if (!seen) { try { sessionStorage.setItem(k, "1"); } catch (e) {} sb.rpc("sponsor_hit", { p_sponsor: sp.id, p_team: S.team.id, p_kind: "view" }).then(() => {}, () => {}); }
+  }
   function countSponsorViews() {
-    if (!S.team || !(S.sponsors || []).length || !document.querySelector(".sponsors")) return;
-    S.sponsors.forEach((sp) => { const k = "sp-v-" + sp.id + "-" + S.team.id; let seen = null; try { seen = sessionStorage.getItem(k); } catch (e) {}
-      if (!seen) { try { sessionStorage.setItem(k, "1"); } catch (e) {} sb.rpc("sponsor_hit", { p_sponsor: sp.id, p_team: S.team.id, p_kind: "view" }).then(() => {}, () => {}); } });
+    if (!S.team || !(S.sponsors || []).length) return;
+    if (document.querySelector(".sp-banner")) startSponsorRotation();
+    else clearInterval(spTimer);
+    if (document.querySelector(".sponsors")) S.sponsors.forEach(countView);
   }
   document.addEventListener("click", (ev) => { const a = ev.target.closest("a[data-sp]"); if (a && S.team) sb.rpc("sponsor_hit", { p_sponsor: a.dataset.sp, p_team: S.team.id, p_kind: "click" }).then(() => {}, () => {}); });
 
@@ -551,7 +587,7 @@
   function tabSponsors() {
     if (!S.teamSponsorsLoaded) return `<div class="boot">Carico gli sponsor…</div>`;
     const editing = S.ui.spEdit === "new" ? null : (S.teamSponsors || []).find((x) => x.id === S.ui.spEdit);
-    return `<div class="notice small">Gli sponsor della società compaiono solo ai membri di questa squadra, in fondo alla lista delle trasferte e nel report. Finché ne hai almeno uno attivo, sostituiscono quelli di Carpoolino.</div>
+    return `<div class="notice small">Gli sponsor della società compaiono solo ai membri di questa squadra: a rotazione nel banner in cima alle trasferte e in fondo al report. Puoi inserirne fino a 10. Finché ne hai almeno uno attivo, sostituiscono quelli di Carpoolino.</div>
       ${S.ui.spEdit ? sponsorForm(editing, "team") : `<button class="btn-primary" data-act="sp-new">+ Aggiungi sponsor</button>`}
       <div class="card"><div class="label">Sponsor della squadra · ${(S.teamSponsors || []).length}</div>${sponsorList(S.teamSponsors || [], S.teamSponsorStats, "team")}</div>`;
   }
@@ -909,6 +945,7 @@
       "admin-filter": () => { S.ui.adminFilter = b.dataset.v; renderAdmin(); },
       "admin-csv": () => adminCSV(),
       "admin-refresh": () => viewAdmin(),
+      "sp-goto": () => { spShow(Number(b.dataset.v)); startSponsorRotation(); },
       "sp-new": () => { S.ui.spEdit = "new"; S.ui.confirm = null; rerenderSp(); },
       "sp-edit": () => { S.ui.spEdit = id; S.ui.confirm = null; rerenderSp(); },
       "sp-cancel": () => { S.ui.spEdit = null; S.ui.confirm = null; rerenderSp(); },

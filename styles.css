@@ -184,3 +184,18 @@ footer.foot{text-align:center;color:var(--muted);font-size:.82rem;padding:8px 16
 .brand img:first-child{border-radius:9px}
 .top .titlerow{min-height:0;padding-top:0;padding-bottom:10px}
 .form .check-pill{display:inline-flex;flex-direction:row;align-items:center;gap:6px;font-weight:600}
+
+/* banner sponsor a rotazione */
+.sp-banner{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 12px 8px;overflow:hidden}
+.sp-tag{position:absolute;top:6px;right:10px;font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.sp-slides{display:grid}
+.sp-slide{grid-area:1/1;display:flex;align-items:center;gap:12px;min-height:58px;padding-right:22px;text-decoration:none;color:var(--ink);opacity:0;visibility:hidden;transition:opacity .5s ease,visibility .5s}
+.sp-slide.on{opacity:1;visibility:visible}
+.sp-slide img{height:48px;max-width:110px;object-fit:contain;flex:none;background:#fff;border-radius:8px}
+.sp-txt{display:grid;min-width:0}
+.sp-txt span{font-size:.9rem;color:var(--muted);overflow-wrap:anywhere}
+.sp-go{margin-left:auto;font-size:1.6rem;color:var(--accent-text);line-height:1}
+.sp-dots{display:flex;justify-content:center;gap:6px;margin-top:6px}
+.sp-dots button{width:8px;height:8px;min-height:0;padding:0;border-radius:50%;border:0;background:var(--line);cursor:pointer}
+.sp-dots button.on{background:var(--brand)}
+@media (prefers-reduced-motion: reduce){.sp-slide{transition:none}}
