@@ -104,6 +104,7 @@
     S.user = (await sb.auth.getUser()).data.user;
     const { data } = await sb.from("profiles").select("*").eq("id", S.user.id).maybeSingle();
     S.profile = data || { id: S.user.id, display_name: "", phone: "" };
+    try { S.platformAdmin = (await sb.rpc("is_platform_admin")).data === true; } catch (e) { S.platformAdmin = false; }
     if (S.profile.phone == null) S.profile.phone = "";
     return S.profile;
   }
@@ -144,12 +145,16 @@
       </form></div>`;
   }
 
+  const logEvent = (kind, team, qty) => { try { sb.rpc("log_event", { p_kind: kind, p_team: team || null, p_qty: qty || 0 }).then(() => {}, () => {}); } catch (e) { /* facoltativo */ } };
+  function logOpenOncePerDay() { const d = new Date().toISOString().slice(0, 10); if (store("cp-open") !== d) { store("cp-open", d); logEvent("app_open"); } }
+
   // ---------- router ----------
   async function route() {
     const hash = location.hash || "#/";
     if (!S.session) return viewLogin(hash !== "#/" ? hash : null);
     try { await ensureProfile(); } catch (e) { toast(errMsg(e)); }
     if (!S.profile?.display_name) return viewName();
+    logOpenOncePerDay();
     const next = store("it-next");
     if (next) { store("it-next", null); if (next !== hash) { location.hash = next; return; } }
 
@@ -157,6 +162,7 @@
     if (parts[0] === "join" && parts[1]) return viewJoin(decodeURIComponent(parts[1]));
     if (parts[0] === "new") return viewNewTeam();
     if (parts[0] === "profilo") return viewProfile();
+    if (parts[0] === "admin") return viewAdmin();
     if (parts[0] === "t" && parts[1]) return viewTeam(parts[1], parts[2] || "trasferte");
     return viewHome();
   }
@@ -242,6 +248,7 @@
   async function viewJoin(code) {
     unsubscribe();
     $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="boot">Controllo l'invito…</div></div>`;
+    logEvent("invite_open");
     const { data, error } = await sb.rpc("preview_invite", { p_code: code });
     const t = data && data[0];
     if (error || !t) {
@@ -269,8 +276,70 @@
         <div class="full small muted">Accesso con: ${esc(S.user.email || "")}</div>
         <div class="actions"><button class="btn-primary" type="submit">Salva</button></div>
       </form>
+      ${S.platformAdmin ? `<a class="btn btn-primary btn-block" href="#/admin">Pannello di amministrazione</a>` : ""}
       <button class="btn-ghost" data-act="logout">Esci</button>
     </div>` + footer();
+  }
+
+  // ---------- pannello amministrazione (solo super-admin) ----------
+  async function viewAdmin() {
+    unsubscribe();
+    if (!S.platformAdmin) { location.hash = "#/"; return; }
+    $app.innerHTML = topBar({ title: "Amministrazione", back: "#/profilo" }) + `<div class="wrap"><div class="boot">Calcolo gli indicatori…</div></div>`;
+    const { data, error } = await sb.rpc("admin_stats");
+    if (error || !data) { $app.innerHTML = topBar({ title: "Amministrazione", back: "#/profilo" }) + `<div class="wrap"><div class="empty"><strong>Dati non disponibili</strong>${esc(errMsg(error))}</div></div>`; return; }
+    S.adminData = data; renderAdmin();
+  }
+  const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+  const ago = (iso) => { if (!iso) return "—"; const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400e3); return d <= 0 ? "oggi" : d === 1 ? "ieri" : d + " giorni fa"; };
+  function renderAdmin() {
+    const D = S.adminData, U = D.users, T = D.teams, A = D.activity, AI = D.ai;
+    const f = S.ui.adminFilter || "tutte";
+    const d30 = Date.now() - 30 * 86400e3;
+    let list = D.team_list || [];
+    if (f === "attive") list = list.filter((t) => new Date(t.last_activity).getTime() >= d30 && (t.rides > 0 || t.bookings > 0));
+    if (f === "dormienti") list = list.filter((t) => !t.rides && !t.bookings);
+    if (f === "premium") list = list.filter((t) => t.plan === "premium");
+    const tile = (v, l, warn) => `<div class="${warn ? "warn" : ""}"><b>${fmt(v)}</b>${l}</div>`;
+    const sportName = (k) => (SPORTS[k] || SPORTS.altro).label;
+    const W = D.weekly || [];
+    const max = Math.max(1, ...W.map((w) => Math.max(w.active_users, w.bookings)));
+    const bars = W.map((w, i) => { const x = 8 + i * 26, h1 = Math.round((w.active_users / max) * 90), h2 = Math.round((w.bookings / max) * 90);
+      return `<rect x="${x}" y="${100 - h1}" width="10" height="${h1}" rx="2" class="b1"><title>Settimana ${w.week}: ${w.active_users} utenti attivi</title></rect><rect x="${x + 11}" y="${100 - h2}" width="10" height="${h2}" rx="2" class="b2"><title>Settimana ${w.week}: ${w.bookings} posti prenotati</title></rect>`; }).join("");
+    const plans = Object.entries(T.by_plan || {}).map(([k, v]) => `${esc(k)}: <b>${v}</b>`).join(" · ") || "—";
+    const sports = Object.entries(T.by_sport || {}).map(([k, v]) => `${esc(sportName(k))}: <b>${v}</b>`).join(" · ") || "—";
+    $app.innerHTML = topBar({ title: "Amministrazione", sub: "Visibile solo a te · aggiornato " + new Date(D.generated_at).toLocaleString("it-IT"), back: "#/profilo" }) + `<div class="wrap">
+      <div class="card"><div class="label">Utenti</div><div class="stats">
+        ${tile(U.total, "registrati")}${tile(U.with_team, "in una squadra")}${tile(U.active_7d, "attivi 7 gg")}${tile(U.active_30d, "attivi 30 gg")}${tile(U.new_30d, "nuovi 30 gg")}${tile(U.signin_30d, "accessi 30 gg")}
+      </div></div>
+      <div class="card"><div class="label">Squadre</div><div class="stats">
+        ${tile(T.total, "registrate")}${tile(T.active_30d, "attive 30 gg")}${tile(T.dormant, "mai usate", T.dormant > 0)}
+      </div><div class="small muted">Piani: ${plans}<br>Sport: ${sports}</div></div>
+      <div class="card"><div class="label">Utilizzo</div><div class="stats">
+        ${tile(A.events, "trasferte caricate")}${tile(A.events_upcoming, "in programma")}${tile(A.events_no_car, "in programma senza auto", A.events_no_car > 0)}
+        ${tile(A.rides, "auto/mezzi offerti")}${tile(A.bookings, "posti prenotati")}${tile(A.requests_open, "richieste aperte", A.requests_open > 0)}
+      </div><div class="small muted">Riempimento auto (trasferte passate): <b>${pct(A.bookings_past, A.seats_past)}%</b> · mezzi della società: <b>${fmt(A.rides_club)}</b></div></div>
+      <div class="card"><div class="label">Import calendario con AI</div><div class="stats">
+        ${tile(AI.ok, "riusciti")}${tile(AI.empty, "senza partite", AI.empty > 0)}${tile(AI.error, "errori", AI.error > 0)}${tile(AI.events_found, "partite trovate")}
+      </div></div>
+      <div class="card"><div class="between"><div class="label">Ultime 12 settimane</div><div class="small"><span class="lg b1"></span> utenti attivi <span class="lg b2"></span> posti prenotati</div></div>
+        <svg class="weekly" viewBox="0 0 ${8 + W.length * 26} 104" preserveAspectRatio="none" role="img" aria-label="Andamento settimanale">${bars}<line x1="0" y1="100.5" x2="${8 + W.length * 26}" y2="100.5" class="axis"/></svg>
+        <div class="small muted">Gli utenti attivi si contano da oggi in poi: il registro d'uso è appena stato attivato.</div></div>
+      <div class="card"><div class="between"><div class="label">Squadre · ${list.length}</div><button class="btn-ghost" data-act="admin-csv">Esporta CSV</button></div>
+        <div class="pill-group" role="radiogroup" aria-label="Filtro squadre">${[["tutte", "Tutte"], ["attive", "Attive"], ["dormienti", "Mai usate"], ["premium", "Premium"]].map(([k, l]) => `<button type="button" class="pill" role="radio" aria-checked="${k === f}" data-act="admin-filter" data-v="${k}">${l}</button>`).join("")}</div>
+        <div class="tablewrap"><table><thead><tr><th>Squadra</th><th class="num">Membri</th><th class="num">Trasferte</th><th class="num">Auto</th><th class="num">Posti</th><th class="num">AI</th><th>Ultima attività</th></tr></thead>
+        <tbody>${list.map((t) => `<tr><td><b>${esc(t.name)}</b><div class="small muted">${esc(sportName(t.sport))}${t.category ? " · " + esc(t.category) : ""} · ${esc(t.plan)}${t.pending ? " · " + t.pending + " in attesa" : ""}</div></td><td class="num">${t.members}</td><td class="num">${t.events}${t.events_upcoming ? ` <span class="muted">(${t.events_upcoming})</span>` : ""}</td><td class="num">${t.rides}</td><td class="num">${t.bookings}</td><td class="num">${t.ai_imports}</td><td>${ago(t.last_activity)}</td></tr>`).join("") || `<tr><td colspan="7" class="muted">Nessuna squadra.</td></tr>`}</tbody></table></div>
+        <div class="small muted">Trasferte: totale (in programma). Squadre "attive": almeno un'auto o una prenotazione e attività negli ultimi 30 giorni.</div></div>
+      <button class="btn-ghost" data-act="admin-refresh">Aggiorna</button>
+    </div>` + footer();
+  }
+  function adminCSV() {
+    const L = S.adminData.team_list || [];
+    const head = ["squadra", "sport", "categoria", "stagione", "piano", "creata", "membri", "in_attesa", "trasferte", "in_programma", "auto", "posti_prenotati", "richieste_aperte", "import_ai", "ultima_attivita"];
+    const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const rows = L.map((t) => [q(t.name), t.sport, q(t.category), q(t.season), t.plan, String(t.created_at).slice(0, 10), t.members, t.pending, t.events, t.events_upcoming, t.rides, t.bookings, t.requests_open, t.ai_imports, String(t.last_activity).slice(0, 10)].join(";"));
+    const blob = new Blob(["\ufeff" + [head.join(";")].concat(rows).join("\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "carpoolino-squadre.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
   // ---------- squadra ----------
@@ -734,7 +803,10 @@
       "print": () => window.print(),
       "csv": () => exportCSV(),
       "copy-link": () => copy(inviteUrl()),
-      "copy-text": () => copy(inviteText())
+      "copy-text": () => copy(inviteText()),
+      "admin-filter": () => { S.ui.adminFilter = b.dataset.v; renderAdmin(); },
+      "admin-csv": () => adminCSV(),
+      "admin-refresh": () => viewAdmin()
     };
     if (simple[act]) return simple[act]();
     if (act.startsWith("ask-")) { const map = { "ask-del-event": "event:" + id, "ask-del-ride": "ride:" + id, "ask-remove-member": "member:" + id, "ask-leave": "leave", "ask-regen": "regen", "ask-veh-del": "veh:" + id, "ask-del-team": "del-team" }; S.ui.confirm = map[act]; return renderTeam(); }
@@ -869,7 +941,8 @@
         const body = { team_id: S.team.id, team_name: S.team.name, sport: S.team.sport, season: S.team.season };
         if (file && file.size) { body.media_type = file.type; body.data = await fileToBase64(file); } else body.text = text;
         const { data, error } = await sb.functions.invoke("import-calendar", { body });
-        if (error) throw error;
+        if (error) { logEvent("ai_import_error", S.team.id); throw error; }
+        logEvent(data && data.events && data.events.length ? "ai_import_ok" : "ai_import_empty", S.team.id, data && data.events ? data.events.length : 0);
         if (!data || !Array.isArray(data.events) || !data.events.length) { toast("Nessuna partita trovata nel documento"); if (btn) { btn.disabled = false; btn.textContent = "Leggi il calendario"; } return; }
         S.aiPreview = data.events; renderTeam(); return;
       }
