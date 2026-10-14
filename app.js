@@ -1,4 +1,4 @@
-/* InTrasferta · webapp (beta)
+/* Carpoolino · webapp (beta)
    Nessun build: HTML + JS + Supabase. Tutti i testi degli utenti passano da esc(). */
 (function () {
   "use strict";
@@ -114,7 +114,7 @@
     $app.innerHTML = `
       <div class="hero"><div class="in">
         <div class="label" style="color:#F28C28">Beta</div>
-        <h1><b>In</b>Trasferta</h1>
+        <h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg" alt="Carpoolino" class="wordmark"></h1>
         <p style="font-size:1.15rem;margin:0">Le trasferte della squadra, organizzate in un minuto.</p>
       </div></div>
       <div class="wrap narrow">
@@ -129,7 +129,7 @@
           <label class="full">Codice<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" required placeholder="123456"></label>
           <div class="actions"><button class="btn-primary" type="submit">Entra</button><button class="btn-ghost" type="button" data-act="login-restart">Cambia email</button></div>
         </form>`}
-        <p class="small muted">Usando InTrasferta accetti che il tuo nome e quello dei tuoi atleti siano visibili agli altri membri delle tue squadre. Nessun indirizzo di casa, nessuna posizione in tempo reale, nessun pagamento.</p>
+        <p class="small muted">Usando Carpoolino accetti che il tuo nome e quello dei tuoi atleti siano visibili agli altri membri delle tue squadre. Nessun indirizzo di casa, nessuna posizione in tempo reale, nessun pagamento.</p>
       </div>`;
   }
 
@@ -163,7 +163,7 @@
 
   function topBar({ title, sub, back, tabs, active, teamId }) {
     return `<header class="top"><div class="in">
-      ${back ? `<a class="iconbtn" href="${back}" aria-label="Indietro"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></a>` : `<a class="brand" href="#/">${logoSvg(26)}<span><b>In</b>Trasferta</span></a>`}
+      ${back ? `<a class="iconbtn" href="${back}" aria-label="Indietro"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></a>` : `<a class="brand" href="#/" aria-label="Carpoolino, home"><img src="icon.svg" alt="" width="30" height="30"><img src="logo.svg" alt="" class="wordmark"></a>`}
       <div class="grow">${title ? `<div class="title">${esc(title)}</div>` : ""}${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</div>
       <a class="iconbtn ring" href="#/profilo" aria-label="Profilo">${esc(initials(S.profile?.display_name))}</a>
     </div>
@@ -173,7 +173,7 @@
   function logoSvg(h) {
     return `<svg width="${Math.round(h * 0.85)}" height="${h}" viewBox="0 0 64 75" aria-hidden="true"><path d="M32 2C16.5 2 4 14.2 4 29.4 4 50 32 73 32 73s28-23 28-43.6C60 14.2 47.5 2 32 2z" fill="#F28C28"/><path d="M15 37v-5c0-1.7 1.1-3.2 2.8-3.7l5-1.5 5.5-6.6c.9-1.1 2.3-1.7 3.7-1.7h7.6c1.5 0 2.8.6 3.7 1.7l5.3 6.3 3 .8c1.8.4 3 2 3 3.8V37z" fill="#fff"/><circle cx="23" cy="38" r="4.2" fill="#16202E"/><circle cx="41" cy="38" r="4.2" fill="#16202E"/></svg>`;
   }
-  const footer = () => `<footer class="foot">InTrasferta beta · solo coordinamento tra famiglie, nessun pagamento · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
+  const footer = () => `<footer class="foot">Carpoolino beta · solo coordinamento tra famiglie, nessun pagamento · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
 
   // ---------- home: le mie squadre ----------
   async function viewHome() {
@@ -595,7 +595,7 @@
 
   // ----- tab invita -----
   const inviteUrl = () => location.origin + location.pathname + "#/join/" + S.team.invite_code;
-  const inviteText = () => `Ciao! Per organizzare i passaggi alle trasferte di ${S.team.name} usiamo InTrasferta: entra da qui e scrivi il nome del tuo atleta. ${inviteUrl()}`;
+  const inviteText = () => `Ciao! Per organizzare i passaggi alle trasferte di ${S.team.name} usiamo Carpoolino: entra da qui e scrivi il nome del tuo atleta. ${inviteUrl()}`;
   function tabInvite() {
     const admin = isAdmin();
     return `<div class="card">
@@ -756,7 +756,7 @@
         const r = S.rides.find((x) => x.id === id), e = r && S.events.find((x) => x.id === r.event_id);
         const pax = S.bookings.filter((x) => x.ride_id === id && x.booked_by !== S.user.id);
         const { error } = await sb.from("rides").delete().eq("id", id); if (error) throw error; toast("Mezzo ritirato");
-        if (e && pax.length) { const L = tripLabel(e); S.ui.wa = pax.map((bk) => { const m = member(bk.booked_by); return { to: firstName(m.name), phone: m.phone, text: `Ciao ${firstName(m.name)}, purtroppo non posso più accompagnare ${bk.athlete_name} a ${L.trip} (${L.d}): il posto è di nuovo libero su InTrasferta.` }; }); }
+        if (e && pax.length) { const L = tripLabel(e); S.ui.wa = pax.map((bk) => { const m = member(bk.booked_by); return { to: firstName(m.name), phone: m.phone, text: `Ciao ${firstName(m.name)}, purtroppo non posso più accompagnare ${bk.athlete_name} a ${L.trip} (${L.d}): il posto è di nuovo libero su Carpoolino.` }; }); }
       }
       if (act === "take") {
         const q = S.requests.find((x) => x.id === id), e = q && S.events.find((x) => x.id === q.event_id);

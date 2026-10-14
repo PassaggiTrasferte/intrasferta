@@ -1,6 +1,6 @@
 {
-  "name": "InTrasferta",
-  "short_name": "InTrasferta",
+  "name": "Carpoolino",
+  "short_name": "Carpoolino",
   "description": "Le trasferte della squadra, organizzate in un minuto.",
   "start_url": "./",
   "scope": "./",
