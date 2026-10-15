@@ -46,6 +46,7 @@
   function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 3000); }
 
   const ERRORS = {
+    last_admin: "Sei l'unico amministratore di una squadra con altri membri: prima nomina un altro amministratore in Membri, poi potrai eliminare l'account.",
     ride_full: "Auto piena: qualcuno ha appena preso l'ultimo posto.",
     athlete_already_booked: "Questo atleta ha già un posto per questa trasferta.",
     invalid_code: "Codice invito non valido o scaduto. Chiedi un nuovo link all'amministratore.",
@@ -107,8 +108,121 @@
     S.profile = data || { id: S.user.id, display_name: "", phone: "" };
     try { S.platformAdmin = (await sb.rpc("is_platform_admin")).data === true; } catch (e) { S.platformAdmin = false; }
     if (S.profile.phone == null) S.profile.phone = "";
+    await loadConsents();
     return S.profile;
   }
+
+  // ---------- consensi ----------
+  const TERMS_VERSION = "1";
+  const season = () => { const d = new Date(), y = d.getFullYear(); return d.getMonth() >= 8 ? `${y}/${String(y + 1).slice(2)}` : `${y - 1}/${String(y).slice(2)}`; };
+  async function loadConsents() {
+    S.consents = {}; S.consentLog = [];
+    try {
+      const { data } = await sb.from("consents").select("kind,version,granted,created_at").eq("user_id", S.user.id).order("created_at", { ascending: false });
+      S.consentLog = data || [];
+      S.consentLog.forEach((c) => { const k = c.kind === "club" || c.kind === "driver" ? c.kind + ":" + c.version : c.kind; if (!(k in S.consents)) S.consents[k] = c; });
+    } catch (e) { /* tabella non ancora creata */ S.consents = null; }
+  }
+  const hasConsent = (k) => !!(S.consents && S.consents[k] && S.consents[k].granted);
+  const consentsOk = () => S.consents === null || (hasConsent("terms") && S.consents.terms.version === TERMS_VERSION && hasConsent("parent"));
+  async function saveConsent(kind, granted, version) {
+    const row = { user_id: S.user.id, kind, version: version || (kind === "terms" ? TERMS_VERSION : ""), granted: !!granted };
+    const { error } = await sb.from("consents").insert(row); if (error) throw error;
+    const k = kind === "club" || kind === "driver" ? kind + ":" + row.version : kind;
+    if (S.consents) S.consents[k] = { ...row, created_at: new Date().toISOString() };
+    S.consentLog.unshift({ ...row, created_at: new Date().toISOString() });
+  }
+  const driverOk = () => hasConsent("driver:" + season());
+
+  // finestra dei consensi (primo accesso e Termini aggiornati)
+  function viewConsents() {
+    const updated = S.consents && S.consents.terms && S.consents.terms.version !== TERMS_VERSION;
+    const open = S.ui.legalOpen;
+    $app.innerHTML = `<div class="hero"><div class="in"><h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg" alt="Carpoolino" class="wordmark"></h1></div></div>
+      <div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="cons-title">
+        <img src="icon.svg" alt="" width="56" height="56" class="modal-icon">
+        <h2 id="cons-title">${updated ? "Abbiamo aggiornato i Termini" : "Prima di iniziare, due cose importanti"}</h2>
+        ${open ? `<div class="legal-box">${LEGAL[open].html}</div><button class="btn-ghost" data-act="legal-close">← Torna al riepilogo</button>` : `
+        <div class="cons-item"><span aria-hidden="true">🤝</span><div><b>Carpoolino mette in contatto le famiglie, non organizza i viaggi.</b> I passaggi sono accordi gratuiti tra genitori: chi guida è responsabile del proprio viaggio.</div></div>
+        <div class="cons-item"><span aria-hidden="true">🚗</span><div><b>Chi offre un passaggio deve poter trasportare i ragazzi in sicurezza:</b> patente valida, auto assicurata e revisionata, rispetto del codice della strada, cinture o seggiolini per tutti, non più passeggeri dei posti omologati.</div></div>
+        <div class="cons-item"><span aria-hidden="true">🔒</span><div><b>I tuoi dati restano qui.</b> Nome, cellulare e nome dei tuoi figli li vedono solo le tue squadre. Niente pubblicità profilata, nessun dato ceduto a terzi, nessuna posizione in tempo reale.</div></div>`}
+        <form class="form" data-form="consents">
+          <label class="full check"><input type="checkbox" name="terms" required ${hasConsent("terms") && !updated ? "checked" : ""}> <span>Ho letto e accetto i <button type="button" class="btn-link" data-act="legal-open" data-v="termini">Termini d'uso</button> e l'<button type="button" class="btn-link" data-act="legal-open" data-v="privacy">Informativa privacy</button> <small class="muted">(obbligatorio)</small></span></label>
+          <label class="full check"><input type="checkbox" name="parent" required ${hasConsent("parent") ? "checked" : ""}> <span>Sono il genitore, o chi ne fa le veci, degli atleti che inserirò <small class="muted">(obbligatorio)</small></span></label>
+          <div class="full label" style="margin-top:4px">Facoltativi</div>
+          <label class="full check switch"><input type="checkbox" name="news" ${hasConsent("news") ? "checked" : ""}> <span>Ricevere via email novità e consigli d'uso di Carpoolino</span></label>
+          <label class="full check switch"><input type="checkbox" name="stats" ${hasConsent("stats") ? "checked" : ""}> <span>Statistiche d'uso anonime per migliorare l'app</span></label>
+          <div class="actions"><button class="btn-primary btn-block" type="submit">Continua</button></div>
+        </form>
+        <p class="small muted" style="margin:0">Puoi cambiare i consensi facoltativi quando vuoi da Profilo › Privacy e consensi.</p>
+      </div></div>`;
+  }
+
+  // ---------- Termini d'uso e Informativa privacy (bozze da far rivedere a un legale) ----------
+  const LEGAL_UPDATED = "15 ottobre 2026";
+  const LEGAL = {
+    termini: { title: "Termini d'uso", html: `
+      <p class="muted">Versione ${TERMS_VERSION} · aggiornati il ${LEGAL_UPDATED}. Gestore del servizio: &lt;titolare&gt;.</p>
+      <h3>1. Cos'è Carpoolino</h3>
+      <p>Carpoolino è uno strumento online che aiuta i genitori e le società sportive a coordinare i passaggi in auto verso trasferte, partite e allenamenti. Carpoolino <b>mette in contatto le famiglie ma non organizza, non effettua e non intermedia trasporti</b>: non è un vettore, un'agenzia né un servizio di noleggio con conducente.</p>
+      <h3>2. Passaggi di cortesia, gratuiti</h3>
+      <p>I passaggi pubblicati sono accordi liberi e <b>gratuiti</b> tra privati (trasporto di cortesia). Carpoolino non gestisce pagamenti e vieta di chiedere o offrire compensi per i passaggi. Ogni eventuale accordo diverso riguarda solo le persone coinvolte.</p>
+      <h3>3. Chi guida</h3>
+      <p>Chi offre un passaggio dichiara, e garantisce per tutta la durata del viaggio, di:</p>
+      <ul><li>avere una patente valida e non sospesa, ed essere in condizioni idonee alla guida;</li>
+        <li>usare un veicolo con assicurazione RC auto in corso di validità e revisione regolare;</li>
+        <li>rispettare il codice della strada, usare cinture di sicurezza e, dove previsto, sistemi di ritenuta adeguati all'età dei ragazzi;</li>
+        <li>non trasportare più persone dei posti omologati del veicolo.</li></ul>
+      <p><b>Chi guida è l'unico responsabile del viaggio</b> e del rispetto di questi obblighi. La dichiarazione viene richiesta all'interno dell'app e rinnovata a ogni stagione sportiva.</p>
+      <h3>4. Genitori e accompagnatori</h3>
+      <p>Il genitore, o chi esercita la responsabilità genitoriale, decide liberamente se affidare il proprio figlio a un altro conducente e se accettare un passaggio. È sua cura verificare che le condizioni del viaggio siano adeguate.</p>
+      <h3>5. Società sportive e mezzi della società</h3>
+      <p>La società che usa Carpoolino resta responsabile dei propri mezzi, dei propri autisti e delle proprie coperture assicurative. Carpoolino non sostituisce le polizze della società né quelle dei singoli conducenti.</p>
+      <h3>6. Limitazione di responsabilità</h3>
+      <p>Nei limiti consentiti dalla legge, il gestore di Carpoolino non risponde di sinistri, danni a persone o cose, ritardi, mancati passaggi o comportamenti degli utenti durante i viaggi, che restano regolati dai rapporti tra le persone coinvolte e dalle rispettive assicurazioni. Restano ferme le responsabilità che la legge non consente di escludere.</p>
+      <h3>7. Uso corretto</h3>
+      <p>Inserisci solo dati veri e che hai il diritto di condividere, non usare l'app per scopi diversi dal coordinamento dei passaggi e rispetta gli altri membri della squadra. Gli amministratori possono rimuovere chi non rispetta queste regole.</p>
+      <h3>8. Servizio e modifiche</h3>
+      <p>Il servizio è offerto così com'è, in versione beta, e può cambiare o essere sospeso. Se modifichiamo questi Termini te lo chiederemo di nuovo al primo accesso. Puoi chiudere il tuo account in qualsiasi momento da Profilo › Privacy e consensi.</p>
+      <h3>9. Contatti</h3>
+      <p>&lt;titolare&gt; · &lt;email di contatto&gt;</p>` },
+    privacy: { title: "Informativa privacy", html: `
+      <p class="muted">Aggiornata il ${LEGAL_UPDATED} · ai sensi del Regolamento UE 2016/679 (GDPR).</p>
+      <h3>Titolare del trattamento</h3>
+      <p>&lt;titolare&gt; · &lt;indirizzo&gt; · &lt;email per la privacy&gt;</p>
+      <h3>Quali dati trattiamo</h3>
+      <ul><li><b>Account:</b> email, usata solo per l'accesso con codice.</li>
+        <li><b>Profilo:</b> nome che scegli e numero di cellulare.</li>
+        <li><b>Squadre:</b> le squadre a cui partecipi, il tuo ruolo e il nome dei tuoi atleti.</li>
+        <li><b>Passaggi:</b> auto offerte, posti prenotati, richieste, punti di partenza e orari che inserisci.</li>
+        <li><b>Consensi:</b> cosa hai accettato e quando.</li>
+        <li><b>Statistiche d'uso</b> (solo se le attivi): giorni di apertura dell'app e uso delle funzioni, senza dati di posizione.</li></ul>
+      <p>Non raccogliamo indirizzi di casa, posizione in tempo reale o dati di pagamento.</p>
+      <h3>Dati dei minori</h3>
+      <p>Il nome degli atleti, spesso minorenni, è inserito dal genitore o da chi ne fa le veci, che dichiara di averne il diritto. È visibile solo ai membri della stessa squadra.</p>
+      <h3>Perché e su quale base</h3>
+      <ul><li>Far funzionare il servizio che hai richiesto: account, squadre e passaggi (esecuzione del servizio).</li>
+        <li>Conservare la prova dei consensi e delle dichiarazioni (obbligo e legittimo interesse a tutela del servizio).</li>
+        <li>Inviarti novità via email e raccogliere statistiche d'uso, solo con il tuo consenso, revocabile in ogni momento.</li></ul>
+      <h3>Chi vede i tuoi dati</h3>
+      <p>Il tuo nome, il cellulare e il nome dei tuoi atleti sono visibili solo ai membri delle tue squadre. <b>Non vendiamo né cediamo dati a terzi e non facciamo pubblicità profilata.</b> Gli sponsor mostrati nell'app non ricevono dati personali: conteggiamo solo visualizzazioni e clic in forma aggregata.</p>
+      <h3>Fornitori tecnici</h3>
+      <p>Supabase (database e accesso, server nell'Unione Europea), Brevo (invio delle email), GitHub Pages (pubblicazione del sito), Anthropic (lettura dei calendari caricati dagli amministratori, senza dati dei genitori). Trattano i dati solo per nostro conto.</p>
+      <h3>Per quanto tempo</h3>
+      <p>Finché hai un account. Se lo elimini, cancelliamo profilo, iscrizioni, passaggi e prenotazioni; resta solo ciò che la legge ci obbliga a conservare.</p>
+      <h3>I tuoi diritti</h3>
+      <p>Puoi accedere ai tuoi dati, correggerli, scaricarli, chiederne la cancellazione o limitarne l'uso, e revocare i consensi facoltativi. Molte di queste cose le fai da solo in Profilo › Privacy e consensi; per il resto scrivi a &lt;email per la privacy&gt;. Puoi anche presentare reclamo al Garante per la protezione dei dati personali.</p>
+      <h3>Cookie</h3>
+      <p>Usiamo solo la memoria tecnica del browser necessaria a tenerti collegato e a ricordare le tue preferenze. Nessun cookie di profilazione o di terze parti.</p>` }
+  };
+  function viewLegal(kind) {
+    const L = LEGAL[kind];
+    $app.innerHTML = topBar({ title: L.title, back: S.session ? "#/profilo" : "#/" }) + `<div class="wrap narrow"><article class="card legal">${L.html}
+      <p class="small muted">Bozza in revisione: il testo definitivo sarà verificato da un legale.</p></article></div>` + footer();
+    window.scrollTo(0, 0);
+  }
+
+
 
   // ---------- primo contatto: benvenuto, codice squadra, accesso ----------
   // S.ui.landing: "welcome" (default) · "code" (scrivi il codice) · "email" (accesso)
@@ -122,7 +236,7 @@
         <p style="font-size:1.2rem;margin:0">Le trasferte della squadra, organizzate in un minuto.</p>
         ${big ? `<p class="hero-sub">I genitori offrono i posti in auto, gli altri prenotano: niente più giri di messaggi la sera prima.</p>` : ""}
       </div></div>`;
-    const privacy = `<p class="small muted">Usando Carpoolino accetti che il tuo nome e quello dei tuoi atleti siano visibili agli altri membri delle tue squadre. Nessun indirizzo di casa, nessuna posizione in tempo reale, nessun pagamento.</p>`;
+    const privacy = `<p class="small muted" style="text-align:center"><a href="#/termini">Termini d'uso</a> · <a href="#/privacy">Informativa privacy</a> · Nessuna pubblicità profilata, nessun dato ceduto a terzi.</p>`;
     let body = "";
     if (step === "welcome") {
       body = `<div class="feat">
@@ -180,14 +294,17 @@
       </form></div>`;
   }
 
-  const logEvent = (kind, team, qty) => { try { sb.rpc("log_event", { p_kind: kind, p_team: team || null, p_qty: qty || 0 }).then(() => {}, () => {}); } catch (e) { /* facoltativo */ } };
+  const logEvent = (kind, team, qty) => { if (!hasConsent("stats")) return; try { sb.rpc("log_event", { p_kind: kind, p_team: team || null, p_qty: qty || 0 }).then(() => {}, () => {}); } catch (e) { /* facoltativo */ } };
   function logOpenOncePerDay() { const d = new Date().toISOString().slice(0, 10); if (store("cp-open") !== d) { store("cp-open", d); logEvent("app_open"); } }
 
   // ---------- router ----------
   async function route() {
     const hash = location.hash || "#/";
+    const p0 = hash.slice(2).split("/")[0];
+    if (p0 === "termini" || p0 === "privacy") return viewLegal(p0);
     if (!S.session) return viewLogin(hash !== "#/" ? hash : null);
     try { await ensureProfile(); } catch (e) { toast(errMsg(e)); }
+    if (!consentsOk()) return viewConsents();
     if (!S.profile?.display_name) return viewName();
     logOpenOncePerDay();
     const next = store("it-next");
@@ -219,7 +336,7 @@
   }
   // versione letta dall'indirizzo di app.js in index.html (es. app.js?v=20261015-3)
   const APP_VERSION = ((document.querySelector('script[src*="app.js"]') || {}).src || "").split("v=")[1] || "";
-  const footer = () => `<footer class="foot">Carpoolino beta${APP_VERSION ? " · versione " + esc(APP_VERSION) : ""} · solo coordinamento tra famiglie, nessun pagamento · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
+  const footer = () => `<footer class="foot">Carpoolino beta${APP_VERSION ? " · versione " + esc(APP_VERSION) : ""} · solo coordinamento tra famiglie, nessun pagamento · <a href="#/termini">Termini</a> · <a href="#/privacy">Privacy</a> · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
 
   // ---------- home: le mie squadre ----------
   async function viewHome(stay) {
@@ -287,7 +404,7 @@
         <label class="full">Tuo figlio gioca in questa squadra? Scrivi il suo nome (facoltativo)<input name="athletes" maxlength="200" placeholder="Es. Luca — più nomi separati da virgola"></label>
         <div class="full card" style="background:var(--bg)"><div class="label">Così vedranno le pagine i genitori</div>
           <div class="small">Luogo: <b>${esc(L.place)}</b> · Orario: <b>${esc(L.time)}</b> · Evento: <b>${esc(L.event)}</b></div></div>
-        <label class="full check"><input name="role-ok" type="checkbox" required> Sono l'allenatore o un dirigente di questa squadra</label>
+        <label class="full check declare"><input name="role-ok" type="checkbox" required> <span>Sono l'allenatore o un dirigente di questa squadra e accetto i <a href="#/termini" target="_blank">Termini</a> per le società: mezzi, autisti e coperture assicurative della società restano sotto la sua responsabilità.</span></label>
         <p class="full small muted" style="margin:0">Diventerai l'amministratore: aggiungi le trasferte e inviti i genitori. Se tuo figlio è già in una squadra su Carpoolino, non crearne un'altra: chiedi il link all'allenatore.</p>
         <div class="actions"><button class="btn-primary btn-block" type="submit">Crea la squadra e continua</button></div>
       </form></div>`;
@@ -356,6 +473,7 @@
       </form>
       <a class="btn btn-ghost btn-block" href="#/">← Torna alle trasferte</a>
       ${S.platformAdmin ? `<a class="btn btn-primary btn-block" href="#/admin">Pannello di amministrazione</a>` : ""}
+      ${privacyCard()}
       <div class="card small">
         ${S.ui.confirmLogout ? `<div><b>Vuoi uscire da Carpoolino su questo dispositivo?</b></div>
           <div class="muted">Per rientrare dovrai inserire di nuovo la tua email e il codice che ti arriva.</div>
@@ -363,6 +481,41 @@
         : `<div class="muted">Resti collegato su questo dispositivo finché non esci.</div><div><button class="btn-link danger" data-act="logout-ask">Esci dall'account</button></div>`}
       </div>
     </div>` + footer();
+  }
+
+  function privacyCard() {
+    const c = S.consents || {};
+    const when = (k) => c[k] ? new Date(c[k].created_at).toLocaleDateString("it-IT") : "—";
+    const drv = c["driver:" + season()];
+    return `<div class="card" id="privacy">
+      <div class="label">Privacy e consensi</div>
+      <div class="small">✓ Termini d'uso e Informativa privacy · versione ${esc((c.terms && c.terms.version) || "—")} · accettati il ${when("terms")}</div>
+      <div class="small">✓ Dichiarazione di genitore o tutore · ${when("parent")}</div>
+      <div class="small">${drv && drv.granted ? `✓ Dichiarazione del conducente, stagione ${esc(season())} · ${new Date(drv.created_at).toLocaleDateString("it-IT")}` : `Dichiarazione del conducente: ti verrà chiesta la prima volta che offri un passaggio in questa stagione`}</div>
+      <label class="check switch"><input type="checkbox" data-act="consent-toggle" data-k="news" ${hasConsent("news") ? "checked" : ""}> <span>Ricevere via email novità e consigli d'uso</span></label>
+      <label class="check switch"><input type="checkbox" data-act="consent-toggle" data-k="stats" ${hasConsent("stats") ? "checked" : ""}> <span>Statistiche d'uso anonime</span></label>
+      <div class="row small"><a href="#/termini">Termini d'uso</a> · <a href="#/privacy">Informativa privacy</a></div>
+      <div class="row"><button class="btn-ghost" data-act="data-export">Scarica i miei dati</button></div>
+      ${S.ui.confirmDelete ? `<div class="notice"><b>Eliminare definitivamente l'account?</b><div class="small">Cancelliamo profilo, iscrizioni alle squadre, auto offerte, prenotazioni e richieste. Non si può annullare.</div>
+          <div class="row"><button class="btn-link danger" data-act="del-account">Sì, elimina il mio account</button><button class="btn-link" data-act="del-cancel">Annulla</button></div></div>`
+        : `<div><button class="btn-link danger" data-act="del-ask">Elimina il mio account</button></div>`}
+    </div>`;
+  }
+  async function exportMyData() {
+    const uid = S.user.id;
+    const [mem, rides, books, reqs] = await Promise.all([
+      sb.from("team_members").select("team_id,role,status,athletes,joined_at").eq("user_id", uid),
+      sb.from("rides").select("*").eq("created_by", uid),
+      sb.from("bookings").select("*").eq("booked_by", uid),
+      sb.from("ride_requests").select("*").eq("requested_by", uid)
+    ]);
+    const ids = (mem.data || []).map((m) => m.team_id);
+    const teams = ids.length ? (await sb.from("teams").select("id,name,category,season").in("id", ids)).data || [] : [];
+    const out = { esportato_il: new Date().toISOString(), email: S.user.email, profilo: { nome: S.profile.display_name, cellulare: S.profile.phone },
+      squadre: (mem.data || []).map((m) => ({ ...m, squadra: (teams.find((t) => t.id === m.team_id) || {}).name })),
+      auto_offerte: rides.data || [], prenotazioni: books.data || [], richieste: reqs.data || [], consensi: S.consentLog || [] };
+    const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "carpoolino-i-miei-dati.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
   // ---------- pannello amministrazione (solo super-admin) ----------
@@ -876,6 +1029,7 @@
           <div class="meta">Parte da ${esc(r.depart_from || "—")}${r.depart_time ? ` alle <b>${esc(r.depart_time)}</b>` : ""} · ${r.return_trip ? "fa anche il ritorno" : "solo andata"}${r.assignment === "convocation" ? " · posti assegnati dalla società" : ""}</div>
           ${r.km_to_venue ? `<div class="meta">≈ ${fmt(r.km_to_venue)} km fino a destinazione (percorso più veloce)${r.depart_from && e.place ? ` · <a href="${esc(mapsRoute(r.depart_from, e.place))}" target="_blank" rel="noopener">percorso in Maps</a>` : ""}</div>` : r.depart_from && e.place ? `<div class="meta"><a href="${esc(mapsRoute(r.depart_from, e.place))}" target="_blank" rel="noopener">percorso in Maps</a></div>` : ""}
           ${r.notes ? `<div class="meta">${esc(r.notes)}</div>` : ""}
+          ${r.kind === "parent" ? `<div class="meta courtesy">Passaggio di cortesia tra famiglie: chi guida è responsabile del viaggio.</div>` : ""}
           ${!mine && driverPhone(r) ? `<div class="meta"><a href="tel:${esc(waNum(driverPhone(r)) ? "+" + waNum(driverPhone(r)) : driverPhone(r))}">📞 ${esc(driverPhone(r))}</a></div>` : ""}
         </div>
         <div class="seats" aria-label="${free} posti liberi su ${r.seats}">${dots}<span class="chip ${free ? "ok" : "warn"}">${free ? free + " liberi" : "Pieno"}</span></div>
@@ -923,6 +1077,7 @@
       <label class="full">Note<input name="notes" maxlength="200" placeholder="Es. posso fare una tappa lungo la strada"></label>
       <label class="full">Telefono (per WhatsApp, visibile ai genitori della squadra)<input name="phone" type="tel" inputmode="tel" maxlength="20" placeholder="333 1234567" value="${esc(S.profile.phone || "")}"></label>
       <label class="full check"><input name="back" type="checkbox" checked> Faccio anche il ritorno</label>
+      ${driverOk() ? "" : `<label class="full check declare"><input name="driver" type="checkbox" required> <span>Dichiaro di avere patente valida, auto con assicurazione RC in corso e revisione regolare, e di trasportare i ragazzi rispettando il codice della strada, con cinture o seggiolini e senza superare i posti omologati. Il passaggio è gratuito e sotto la mia responsabilità. <small class="muted">Te lo chiediamo una volta a stagione · <a href="#/termini" target="_blank">Termini</a></small></span></label>`}
       <div class="actions"><button class="btn-primary" type="submit">Pubblica il passaggio</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
     </form>`;
   }
@@ -1055,6 +1210,7 @@
       ${lim ? `<div class="notice">Nel piano gratuito puoi registrare un mezzo. Con Premium: mezzi illimitati.</div>` : `<form class="card form" data-form="vehicle">
         <label class="full">Nome<input name="name" required minlength="2" maxlength="60" placeholder="Es. Pulmino 9 posti"></label>
         <label>Posti per gli atleti<input name="seats" type="number" min="1" max="60" required value="8"></label>
+        <label class="full check declare"><input name="club-ok" type="checkbox" required> <span>Il mezzo è assicurato e revisionato, sarà guidato da autisti abilitati e la responsabilità dei viaggi resta della società.</span></label>
         <div class="actions"><button class="btn-primary" type="submit">Aggiungi mezzo</button></div>
       </form>`}`;
   }
@@ -1145,6 +1301,11 @@
       "wiz-done": () => { store("it-wizard-" + S.team.id, null); location.hash = "#/t/" + S.team.id + "/trasferte"; toast("Tutto pronto!"); },
       "steps-hide": () => { store("it-steps-hide-" + S.team.id, "1"); renderTeam(); },
       "tips-ok": () => { store("it-tips", "1"); renderTeam(); },
+      "legal-open": () => { S.ui.legalOpen = b.dataset.v; viewConsents(); document.querySelector(".modal")?.scrollTo(0, 0); },
+      "legal-close": () => { S.ui.legalOpen = null; viewConsents(); },
+      "data-export": () => exportMyData(),
+      "del-ask": () => { S.ui.confirmDelete = true; viewProfile(); },
+      "del-cancel": () => { S.ui.confirmDelete = false; viewProfile(); },
       "landing-create": () => { store("it-next", "#/new"); S.ui.landing = "email"; viewLogin(); },
       "landing-join": () => { store("it-next", null); S.ui.landing = "code"; viewLogin(); },
       "landing-login": () => { store("it-next", null); S.ui.landing = "email"; viewLogin(); },
@@ -1186,6 +1347,12 @@
     try {
       if (act === "logout-ask") { S.ui.confirmLogout = true; viewProfile(); return; }
       if (act === "logout-cancel") { S.ui.confirmLogout = false; viewProfile(); return; }
+      if (act === "consent-toggle") { await saveConsent(b.dataset.k, b.checked); toast(b.checked ? "Consenso attivato" : "Consenso revocato"); return; }
+      if (act === "del-account") {
+        const { error } = await sb.rpc("delete_my_account"); if (error) throw error;
+        S.ui = {}; try { localStorage.clear(); } catch (e) {}
+        await sb.auth.signOut(); S.profile = null; location.hash = "#/"; toast("Account eliminato. Grazie per aver usato Carpoolino."); return;
+      }
       if (act === "logout") { S.ui.confirmLogout = false; await sb.auth.signOut(); S.profile = null; location.hash = "#/"; return; }
       S.ui.wa = null;
       if (act === "unbook") {
@@ -1275,6 +1442,12 @@
         if ((location.hash || "#/").startsWith("#/profilo")) location.hash = "#/"; else route();
         return;
       }
+      if (kind === "consents") {
+        if (!fd.get("terms") || !fd.get("parent")) { toast("Per continuare servono le due spunte obbligatorie"); if (btn) btn.disabled = false; return; }
+        await saveConsent("terms", true); await saveConsent("parent", true);
+        for (const k of ["news", "stats"]) { const want = fd.get(k) === "on"; if (want !== hasConsent(k) || !(S.consents && S.consents[k])) await saveConsent(k, want); }
+        S.ui.legalOpen = null; route(); return;
+      }
       if (kind === "landing-code") {
         const code = v("code").toUpperCase().replace(/\s+/g, "");
         const { data } = await sb.rpc("preview_invite", { p_code: code });
@@ -1309,7 +1482,7 @@
       if (kind === "new-team") {
         const { data, error } = await sb.rpc("create_team", { p_name: v("name"), p_sport: S.ui.newSport || "basket", p_category: v("category"), p_season: v("season"), p_athletes: v("athletes") });
         if (error) throw error;
-        S.ui.newSport = null; store("it-wizard-" + data.id, "2"); store("it-last-team", data.id); toast("Squadra creata"); location.hash = "#/t/" + data.id + "/trasferte"; return;
+        S.ui.newSport = null; try { await saveConsent("club", true, data.id); } catch (e) { /* registro facoltativo */ } store("it-wizard-" + data.id, "2"); store("it-last-team", data.id); toast("Squadra creata"); location.hash = "#/t/" + data.id + "/trasferte"; return;
       }
       if (kind === "event") {
         const row = { team_id: f.dataset.id ? evTeam(f.dataset.id) : targetTeam(false).id, title: v("title"), starts_at: toISO(v("date"), v("time")), place: v("place"), notes: v("notes"), km_round_trip: v("km") ? Number(v("km")) : null };
@@ -1318,6 +1491,7 @@
       }
       if (kind === "offer") {
         if (!telOk(v("phone"))) { toast("Scrivi un numero di cellulare valido"); if (btn) btn.disabled = false; return; }
+        if (!driverOk()) { if (fd.get("driver") !== "on") { toast("Per offrire un passaggio serve la dichiarazione del conducente"); if (btn) btn.disabled = false; return; } await saveConsent("driver", true, season()); }
         const { data: nr, error } = await sb.from("rides").insert({ event_id: f.dataset.id, team_id: evTeam(f.dataset.id), kind: "parent", driver_user_id: S.user.id, driver_name: S.profile.display_name, driver_phone: v("phone"), seats: Number(v("seats")), depart_time: v("time"), depart_from: v("from"), notes: v("notes"), return_trip: fd.get("back") === "on", created_by: S.user.id }).select("id").single();
         if (error) throw error; toast("Passaggio pubblicato");
         if (v("phone") && !S.profile.phone) { S.profile.phone = v("phone"); sb.from("profiles").update({ phone: v("phone") }).eq("id", S.user.id).then(() => {}); }
@@ -1363,7 +1537,7 @@
         toast(f.dataset.id ? "Sponsor aggiornato" : "Sponsor aggiunto"); await reloadSponsors(scope); return;
       }
       if (kind === "my-athletes") { const { error } = await sb.from("team_members").update({ athletes: v("athletes") }).eq("team_id", S.team.id).eq("user_id", S.user.id); if (error) throw error; toast("Salvato"); }
-      if (kind === "vehicle") { const { error } = await sb.from("vehicles").insert({ team_id: S.team.id, name: v("name"), seats: Number(v("seats")) }); if (error) throw error; toast("Mezzo aggiunto"); }
+      if (kind === "vehicle") { try { if (!hasConsent("club:" + S.team.id)) await saveConsent("club", true, S.team.id); } catch (e) { /* registro facoltativo */ } const { error } = await sb.from("vehicles").insert({ team_id: S.team.id, name: v("name"), seats: Number(v("seats")) }); if (error) throw error; toast("Mezzo aggiunto"); }
       if (kind === "team-settings") {
         const { error } = await sb.from("teams").update({ name: v("name"), category: v("category"), season: v("season"), sport: S.ui.editSport || S.team.sport, baseline_per_car: Number(v("perCar")) || 1.5, co2_kg_per_km: Number(v("co2")) || 0.12, cost_per_km: v("cost") === "" ? 0.15 : Number(v("cost")) }).eq("id", S.team.id);
         if (error) throw error; S.ui.editSport = null; toast("Salvato");

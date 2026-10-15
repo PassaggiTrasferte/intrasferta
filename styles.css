@@ -235,3 +235,25 @@ video.sp-thumb,img.sp-thumb{width:66px;height:22px;object-fit:cover}
 .steps li.ok>span{color:var(--accent-text);text-decoration:none}
 .tips{background:var(--accent-soft);border-color:transparent;gap:8px}
 @media (max-width:380px){.feat{grid-template-columns:1fr}.wiz li{font-size:.75rem}}
+/* consensi e pagine legali */
+.modal-back{position:fixed;inset:0;background:rgba(11,16,24,.72);display:grid;place-items:center;padding:16px;z-index:50;overflow:auto}
+.modal{background:var(--surface);color:var(--ink);border-radius:18px;max-width:520px;width:100%;max-height:calc(100dvh - 32px);overflow:auto;padding:22px 20px;display:grid;gap:14px;box-shadow:0 24px 60px rgba(0,0,0,.35)}
+.modal-icon{justify-self:center;border-radius:14px}
+.modal h2{text-align:center;font-size:1.6rem;line-height:1.1}
+.cons-item{display:grid;grid-template-columns:40px 1fr;gap:10px;align-items:start;font-size:.95rem;line-height:1.4}
+.cons-item>span{width:40px;height:40px;border-radius:50%;background:var(--accent-soft);display:grid;place-items:center;font-size:1.2rem}
+.modal .form{gap:10px}
+.check.switch{display:flex;gap:10px;align-items:center;font-weight:400}
+.check.switch input{appearance:none;-webkit-appearance:none;width:42px;height:24px;min-height:0;border-radius:12px;background:var(--line);position:relative;flex:none;padding:0;border:0;cursor:pointer;transition:background .2s}
+.check.switch input::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.check.switch input:checked{background:var(--brand)}
+.check.switch input:checked::after{left:21px}
+.check.declare{align-items:flex-start;font-weight:400;font-size:.92rem;line-height:1.4;background:var(--accent-soft);border-radius:10px;padding:10px 12px}
+.check.declare input{margin-top:2px;flex:none}
+.legal-box{max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.92rem;line-height:1.5;background:var(--bg)}
+.legal h3,.legal-box h3{font-size:1.15rem;margin:14px 0 4px}
+.legal p,.legal-box p,.legal ul,.legal-box ul{margin:6px 0}
+.courtesy{font-size:.78rem;font-style:italic}
+.check .btn-link{display:inline;padding:0;min-height:0;vertical-align:baseline;font-weight:600;font-size:inherit}
+.modal .check{align-items:flex-start;line-height:1.4}
+.modal .check input[type=checkbox]:not(.switch input){margin-top:2px}
