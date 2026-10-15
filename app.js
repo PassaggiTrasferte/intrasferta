@@ -110,36 +110,70 @@
     return S.profile;
   }
 
+  // ---------- primo contatto: benvenuto, codice squadra, accesso ----------
+  // S.ui.landing: "welcome" (default) · "code" (scrivi il codice) · "email" (accesso)
   function viewLogin(nextHash) {
     if (nextHash) store("it-next", nextHash);
-    const step = S.ui.loginEmail ? "code" : "email";
-    $app.innerHTML = `
-      <div class="hero"><div class="in">
-        <div class="label" style="color:var(--brand)">Beta</div>
+    const next = store("it-next") || "";
+    const invite = next.startsWith("#/join/");
+    const step = S.ui.loginEmail ? "otp" : (invite || next === "#/new") && !S.ui.landing ? "email" : (S.ui.landing || "welcome");
+    const hero = (big) => `<div class="hero"><div class="in">
         <h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg" alt="Carpoolino" class="wordmark"></h1>
-        <p style="font-size:1.15rem;margin:0">Le trasferte della squadra, organizzate in un minuto.</p>
-      </div></div>
-      <div class="wrap narrow">
-        ${step === "email" ? `
+        <p style="font-size:1.2rem;margin:0">Le trasferte della squadra, organizzate in un minuto.</p>
+        ${big ? `<p class="hero-sub">I genitori offrono i posti in auto, gli altri prenotano: niente più giri di messaggi la sera prima.</p>` : ""}
+      </div></div>`;
+    const privacy = `<p class="small muted">Usando Carpoolino accetti che il tuo nome e quello dei tuoi atleti siano visibili agli altri membri delle tue squadre. Nessun indirizzo di casa, nessuna posizione in tempo reale, nessun pagamento.</p>`;
+    let body = "";
+    if (step === "welcome") {
+      body = `<div class="feat">
+          <div><span aria-hidden="true">🚗</span><b>Chi guida offre i posti</b></div>
+          <div><span aria-hidden="true">🙋</span><b>Chi non ha passaggio lo chiede</b></div>
+          <div><span aria-hidden="true">🌱</span><b>Risparmi km, euro e CO₂</b></div>
+        </div>
+        <button class="choice" data-act="landing-create"><b>Registra la tua squadra</b><span>Per allenatori e dirigenti: crei la squadra e inviti i genitori</span></button>
+        <button class="choice" data-act="landing-join"><b>Entra nella squadra di tuo figlio</b><span>Hai ricevuto un link, un QR o un codice</span></button>
+        <p style="text-align:center;margin:4px 0 0">Hai già un account? <button class="btn-link" data-act="landing-login">Accedi</button></p>`;
+    } else if (step === "code") {
+      body = `<form class="card form" data-form="landing-code">
+          <h2 class="full">Entra nella squadra</h2>
+          <label class="full">Codice della squadra<input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="Es. OLI-7K4M2"></label>
+          <p class="full small muted" style="margin:0">Il codice te lo dà l'allenatore o lo trovi sotto il QR. Se hai ricevuto un link su WhatsApp, aprilo: entri direttamente. Il QR si inquadra con la fotocamera del telefono.</p>
+          <div class="actions"><button class="btn-primary" type="submit">Continua</button><button class="btn-ghost" type="button" data-act="landing-back">Indietro</button></div>
+        </form>`;
+    } else if (step === "email") {
+      const title = next === "#/new" ? "Registra la tua squadra" : invite ? "" : "Accedi";
+      body = `${invite ? `<div class="card invite-banner"><div class="label">Sei stato invitato in</div><h2 id="inv-name">${esc(S.ui.inviteName || "…")}</h2><div class="small muted">Accedi con la tua email per entrare nella squadra.</div></div>` : ""}
         <form class="card form" data-form="login-email">
+          ${title ? `<h2 class="full">${title}</h2>` : ""}
           <label class="full">La tua email<input type="email" name="email" required autocomplete="email" placeholder="nome@esempio.it"></label>
           <div class="actions"><button class="btn-primary btn-block" type="submit">Ricevi il codice di accesso</button></div>
-          <p class="full small muted" style="margin:0">Niente password: ti mandiamo un codice di 6 cifre (e un link) via email.</p>
-        </form>` : `
-        <form class="card form" data-form="login-code">
+          <p class="full small muted" style="margin:0">Niente password: ti mandiamo un codice di 6 cifre via email. Se è la prima volta, l'account si crea da solo.</p>
+        </form>
+        <p style="text-align:center;margin:0"><button class="btn-link" data-act="landing-back">← Indietro</button></p>`;
+    } else {
+      body = `<form class="card form" data-form="login-code">
           <p class="full" style="margin:0">Abbiamo scritto a <b>${esc(S.ui.loginEmail)}</b>. Inserisci il codice ricevuto, oppure apri il link nella mail da questo stesso telefono.</p>
           <label class="full">Codice<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" required placeholder="123456"></label>
           <div class="actions"><button class="btn-primary" type="submit">Entra</button><button class="btn-ghost" type="button" data-act="login-restart">Cambia email</button></div>
-        </form>`}
-        <p class="small muted">Usando Carpoolino accetti che il tuo nome e quello dei tuoi atleti siano visibili agli altri membri delle tue squadre. Nessun indirizzo di casa, nessuna posizione in tempo reale, nessun pagamento.</p>
-      </div>`;
+        </form>`;
+    }
+    $app.innerHTML = hero(step === "welcome") + `<div class="wrap narrow">${body}${privacy}</div>`;
+    // nome della squadra dell'invito, visibile anche prima di accedere
+    if (step === "email" && invite && !S.ui.inviteName) {
+      const codes = decodeURIComponent(next.slice(7)).split(",").filter(Boolean);
+      Promise.all(codes.map((c) => sb.rpc("preview_invite", { p_code: c }).then((r) => (r.data && r.data[0]) || null, () => null))).then((ts) => {
+        const names = ts.filter(Boolean).map((t) => t.team_name);
+        S.ui.inviteName = names.length ? names.join(" e ") : "una squadra";
+        const el = document.getElementById("inv-name"); if (el) el.textContent = S.ui.inviteName;
+      });
+    }
   }
 
   function viewName() {
     $app.innerHTML = `<div class="wrap narrow">
       <h1>Come ti chiami?</h1>
       <form class="card form" data-form="profile-name">
-        <label class="full">Il tuo nome, come ti vedranno gli altri genitori<input name="name" required maxlength="80" placeholder="Es. Carmine, papà di Nicolò" value="${esc(S.profile?.display_name || "")}"></label>
+        <label class="full">Il tuo nome, come ti vedranno gli altri genitori<input name="name" required maxlength="80" placeholder="${store("it-next") === "#/new" ? "Es. Marco Rossi, allenatore" : "Es. Paolo, papà di Matteo"}" value="${esc(S.profile?.display_name || "")}"></label>
         <label class="full">Il tuo cellulare (per gli avvisi WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="333 1234567" value="${esc(S.profile?.phone || "")}"></label>
         <p class="full small muted" style="margin:0">Il numero lo vedono solo i genitori delle tue squadre: serve per avvisare con un tocco chi guida o chi ha prenotato.</p>
         <div class="actions"><button class="btn-primary" type="submit">Continua</button></div>
@@ -225,35 +259,37 @@
     $app.innerHTML = topBar({}) + `<div class="wrap">
       <div><div class="muted">Ciao ${esc(S.profile.display_name.split(",")[0])}</div><h1>Le mie squadre</h1></div>
       ${pending.length ? `<div class="notice">Hai ${pending.length} richiest${pending.length === 1 ? "a" : "e"} in attesa di approvazione da parte dell'amministratore.</div>` : ""}
-      ${cards || `<div class="empty"><strong>Nessuna squadra</strong>${canCreateTeam() ? "Crea la tua squadra oppure entra con il link o il codice ricevuto." : "Entra con il link o il codice invito che ti ha mandato l'amministratore della squadra."}</div>`}
+      ${cards || `<div class="card"><h2>Benvenuto in Carpoolino</h2><div class="muted">Non sei ancora in nessuna squadra. Cosa vuoi fare?</div></div>`}
+      ${!cards && !S.ui.codeOpen ? `<button class="choice" data-act="code-open"><b>Entra nella squadra di tuo figlio</b><span>Scrivi il codice che ti ha dato l'allenatore, oppure apri il link ricevuto</span></button>
+        <a class="choice" href="#/new"><b>Registra la tua squadra</b><span>Per allenatori e dirigenti: crei la squadra e inviti i genitori</span></a>` : ""}
       <div class="stack">
-        ${canCreateTeam() ? `<a class="btn btn-primary btn-block" href="#/new">+ Crea una nuova squadra</a>`
-          : `<div class="small muted">Sei il responsabile di una società e vuoi usare Carpoolino? <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}?subject=${encodeURIComponent("Nuova squadra su Carpoolino")}">Scrivici</a> e attiviamo la tua squadra.</div>`}
-        ${S.ui.codeOpen ? `<form class="card form" data-form="code-join"><label class="full">Codice invito<input name="code" required maxlength="12" autocapitalize="characters" placeholder="Es. K7Q4M2PX"></label><div class="actions"><button class="btn-primary" type="submit">Continua</button><button class="btn-ghost" type="button" data-act="code-close">Annulla</button></div></form>`
-          : `<button class="btn-ghost btn-block" data-act="code-open">Ho un codice invito</button>`}
+        ${cards ? `<a class="btn btn-primary btn-block" href="#/new">+ Registra una nuova squadra</a>` : ""}
+        ${S.ui.codeOpen ? `<form class="card form" data-form="code-join"><label class="full">Codice della squadra<input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="Es. OLI-7K4M2"></label><div class="actions"><button class="btn-primary" type="submit">Continua</button><button class="btn-ghost" type="button" data-act="code-close">Annulla</button></div></form>`
+          : cards ? `<button class="btn-ghost btn-block" data-act="code-open">Ho un codice invito</button>` : ""}
       </div></div>` + footer();
   }
 
   // ---------- nuova squadra (solo amministratori) ----------
-  function canCreateTeam() {
-    return !!S.platformAdmin || (S.memberships || []).some((m) => m.role === "admin" && m.status === "active");
-  }
+  const canCreateTeam = () => !!S.user; // chi registra una squadra ne diventa amministratore
+
   async function viewNewTeam() {
     unsubscribe();
     if (!S.memberships) { const { data } = await sb.from("team_members").select("team_id, role, status, athletes").eq("user_id", S.user.id); S.memberships = data || []; }
-    if (!canCreateTeam()) { toast("Solo gli amministratori possono creare una squadra"); location.hash = "#/"; return; }
     const sp = S.ui.newSport || "basket", L = SPORTS[sp];
-    $app.innerHTML = topBar({ title: "Nuova squadra", back: "#/" }) + `<div class="wrap">
+    $app.innerHTML = topBar({ title: "Registra la squadra", back: S.memberships.length ? "#/squadre" : "" }) + `<div class="wrap">
+      ${wizardSteps(1)}
       <form class="card form" data-form="new-team">
         <div class="full stack" style="gap:8px"><div class="label">Sport</div>
           <div class="pill-group" role="radiogroup" aria-label="Sport">${SPORT_ORDER.map((k) => `<button type="button" class="pill" role="radio" aria-checked="${k === sp}" data-act="pick-sport" data-v="${k}">${esc(SPORTS[k].label)}</button>`).join("")}</div></div>
         <label class="full">Nome squadra<input name="name" required minlength="2" maxlength="80" placeholder="Es. Urania Milano U17"></label>
         <label>Categoria<input name="category" maxlength="40" placeholder="Es. U17"></label>
         <label>Stagione<input name="season" maxlength="20" value="2026/27"></label>
-        <label class="full">Il tuo atleta (facoltativo)<input name="athletes" maxlength="200" placeholder="Es. Nicolò — più nomi separati da virgola"></label>
+        <label class="full">Tuo figlio gioca in questa squadra? Scrivi il suo nome (facoltativo)<input name="athletes" maxlength="200" placeholder="Es. Luca — più nomi separati da virgola"></label>
         <div class="full card" style="background:var(--bg)"><div class="label">Così vedranno le pagine i genitori</div>
           <div class="small">Luogo: <b>${esc(L.place)}</b> · Orario: <b>${esc(L.time)}</b> · Evento: <b>${esc(L.event)}</b></div></div>
-        <div class="actions"><button class="btn-primary btn-block" type="submit">Crea squadra</button></div>
+        <label class="full check"><input name="role-ok" type="checkbox" required> Sono l'allenatore o un dirigente di questa squadra</label>
+        <p class="full small muted" style="margin:0">Diventerai l'amministratore: aggiungi le trasferte e inviti i genitori. Se tuo figlio è già in una squadra su Carpoolino, non crearne un'altra: chiedi il link all'allenatore.</p>
+        <div class="actions"><button class="btn-primary btn-block" type="submit">Crea la squadra e continua</button></div>
       </form></div>`;
   }
 
@@ -575,7 +611,8 @@
     const past = S.events.filter((e) => new Date(e.starts_at).getTime() < cut).reverse();
     const admin = isAdmin();
     return `
-      ${adminTeamIds().length ? `<div class="row noprint">
+      ${wizardTrips()}${firstSteps()}${parentTips()}
+      ${adminTeamIds().length && wizStep() !== 2 ? `<div class="row noprint">
         ${S.ui.newEvent ? "" : `<button class="btn-primary" data-act="new-event">+ Aggiungi trasferta</button>`}
         ${adminTeamIds().some((tid) => premium(teamById(tid))) ? `<button class="btn-ghost" data-act="ai-open">Importa calendario con l'AI</button>` : ""}
       </div>` : ""}
@@ -584,6 +621,49 @@
       ${S.ui.ai ? aiPanel() : ""}
       ${up.length ? up.map((e) => withTeam(e.team_id, () => tripCard(e, false))).join("") : `<div class="empty"><strong>Nessuna trasferta in programma</strong>${admin ? "Aggiungi la prossima trasferta o importa il calendario." : "Quando l'amministratore aggiunge una trasferta, comparirà qui."}</div>`}
       ${past.length ? `<button class="btn-link" data-act="toggle-past">${S.showPast ? "Nascondi" : "Mostra"} trasferte passate (${past.length})</button>${S.showPast ? past.map((e) => withTeam(e.team_id, () => tripCard(e, true))).join("") : ""}` : ""}`;
+  }
+
+  // ----- procedura guidata per chi registra una squadra -----
+  function wizardSteps(n) {
+    const L = ["La squadra", "Le trasferte", "I genitori"];
+    return `<ol class="wiz" aria-label="Passo ${n} di 3">${L.map((l, i) => `<li class="${i + 1 < n ? "done" : i + 1 === n ? "on" : ""}"><span>${i + 1 < n ? "✓" : i + 1}</span>${l}</li>`).join("")}</ol>`;
+  }
+  const wizStep = () => isAdmin() ? Number(store("it-wizard-" + S.team.id) || 0) : 0;
+  function wizardTrips() {
+    if (wizStep() !== 2) return "";
+    const has = S.events.some((e) => e.team_id === S.team.id);
+    return `${wizardSteps(2)}<div class="card wiz-card">
+      <h2>${has ? "Ottimo, le trasferte ci sono" : "Aggiungi le trasferte"}</h2>
+      <div class="muted">${has ? "Puoi aggiungerne altre quando vuoi. Ora invita i genitori." : "Il modo più veloce: carica il calendario ufficiale (PDF o foto) e l'AI trova le partite. Oppure aggiungile a mano."}</div>
+      <div class="row">${has ? "" : `${premium() ? `<button class="btn-primary" data-act="ai-open">Carica il calendario</button>` : ""}<button class="btn-ghost" data-act="new-event">Aggiungi a mano</button>`}
+        <button class="${has ? "btn-primary" : "btn-link"}" data-act="wiz-next">${has ? "Avanti: invita i genitori →" : "Lo faccio più tardi →"}</button></div>
+    </div>`;
+  }
+  function wizardInvite() {
+    if (wizStep() !== 3) return "";
+    return `${wizardSteps(3)}<div class="card wiz-card"><h2>Invita i genitori</h2>
+      <div class="muted">Manda il link nel gruppo WhatsApp della squadra, oppure stampa il QR per la bacheca della palestra. Chi lo apre entra direttamente.</div>
+      <div><button class="btn-primary" data-act="wiz-done">Fatto, vai alle trasferte</button></div></div>`;
+  }
+  // scheda "Primi passi" per l'amministratore, finché le cose essenziali non sono fatte
+  function firstSteps() {
+    if (!isAdmin() || wizStep() || store("it-steps-hide-" + S.team.id)) return "";
+    const ev = S.events.some((e) => e.team_id === S.team.id), par = S.members.filter((m) => m.status === "active").length > 1, veh = S.vehicles.some((v) => v.team_id === S.team.id);
+    if (ev && par) return "";
+    const it = (ok, label, act) => `<li class="${ok ? "ok" : ""}"><span aria-hidden="true">${ok ? "✓" : "○"}</span>${ok ? label : act}</li>`;
+    return `<div class="card steps"><div class="between"><div class="label">Primi passi · ${esc(S.team.name)}</div><button class="btn-link" data-act="steps-hide">Nascondi</button></div>
+      <ul>${it(true, "Squadra creata", "")}
+        ${it(ev, "Prima trasferta aggiunta", `<button class="btn-link" data-act="new-event">Aggiungi la prima trasferta</button>`)}
+        ${it(par, "Genitori invitati", `<a href="#/t/${S.team.id}/invita">Invita i genitori</a>`)}
+        ${it(veh, "Mezzo della società", `<a href="#/t/${S.team.id}/mezzi">Aggiungi un mezzo della società</a> <span class="muted">(facoltativo)</span>`)}</ul></div>`;
+  }
+  // tre suggerimenti per il genitore al primo ingresso
+  function parentTips() {
+    if (isAdmin() || store("it-tips")) return "";
+    return `<div class="card tips"><div class="between"><div class="label">Come funziona</div><button class="btn-link" data-act="tips-ok">Ho capito</button></div>
+      <div>🚗 Hai l'auto? Sulla trasferta tocca <b>Offro un passaggio</b>.</div>
+      <div>🎟️ Ti serve un posto? Tocca <b>Prenota un posto</b> sull'auto di un altro genitore.</div>
+      <div>🙋 Nessun posto libero? Tocca <b>Cerco un passaggio</b>: chi ha l'auto risponde «Lo porto io».</div></div>`;
   }
 
   // ----- tab risparmio: una scheda per ogni squadra -----
@@ -939,7 +1019,7 @@
     const adm = adminTeamIds();
     const multiInv = admin && adm.length > 1;
     const selIds = inviteTeams().map((t) => t.id);
-    return `${multiInv ? `<div class="card"><div class="label">Squadre incluse nell'invito</div>
+    return `${wizardInvite()}${multiInv ? `<div class="card"><div class="label">Squadre incluse nell'invito</div>
         <div class="pill-group">${adm.map((tid) => `<label class="pill check-pill"><input type="checkbox" data-act="inv-toggle" data-id="${tid}" ${selIds.includes(tid) ? "checked" : ""}> ${esc(teamById(tid).name)}</label>`).join("")}</div>
         <div class="small muted">Con più squadre il genitore riceve un solo link e sceglie lui in quali entrare: utile per i fratelli.</div></div>` : ""}
       <div class="card">
@@ -1061,6 +1141,14 @@
     const act = b.dataset.act, id = b.dataset.id;
     const simple = {
       "login-restart": () => { S.ui.loginEmail = null; viewLogin(); },
+      "wiz-next": () => { store("it-wizard-" + S.team.id, "3"); location.hash = "#/t/" + S.team.id + "/invita"; },
+      "wiz-done": () => { store("it-wizard-" + S.team.id, null); location.hash = "#/t/" + S.team.id + "/trasferte"; toast("Tutto pronto!"); },
+      "steps-hide": () => { store("it-steps-hide-" + S.team.id, "1"); renderTeam(); },
+      "tips-ok": () => { store("it-tips", "1"); renderTeam(); },
+      "landing-create": () => { store("it-next", "#/new"); S.ui.landing = "email"; viewLogin(); },
+      "landing-join": () => { store("it-next", null); S.ui.landing = "code"; viewLogin(); },
+      "landing-login": () => { store("it-next", null); S.ui.landing = "email"; viewLogin(); },
+      "landing-back": () => { store("it-next", null); S.ui.landing = "welcome"; S.ui.inviteName = null; viewLogin(); },
       "code-open": () => { S.ui.codeOpen = true; viewHome(); },
       "code-close": () => { S.ui.codeOpen = false; viewHome(); },
       "pick-sport": () => { const f = b.closest("form"); const keep = f ? Object.fromEntries(new FormData(f)) : {}; S.ui.newSport = b.dataset.v; viewNewTeam(); const nf = document.querySelector('[data-form="new-team"]'); for (const k in keep) if (nf.elements[k]) nf.elements[k].value = keep[k]; },
@@ -1187,7 +1275,14 @@
         if ((location.hash || "#/").startsWith("#/profilo")) location.hash = "#/"; else route();
         return;
       }
-      if (kind === "code-join") { S.ui.codeOpen = false; location.hash = "#/join/" + encodeURIComponent(v("code").toUpperCase()); return; }
+      if (kind === "landing-code") {
+        const code = v("code").toUpperCase().replace(/\s+/g, "");
+        const { data } = await sb.rpc("preview_invite", { p_code: code });
+        const t = data && data[0];
+        if (!t) { toast(ERRORS.invalid_code); if (btn) btn.disabled = false; return; }
+        store("it-next", "#/join/" + encodeURIComponent(code)); S.ui.inviteName = t.team_name; S.ui.landing = "email"; viewLogin(); return;
+      }
+      if (kind === "code-join") { S.ui.codeOpen = false; location.hash = "#/join/" + encodeURIComponent(v("code").toUpperCase().replace(/\s+/g, "")); return; }
       if (kind === "join-multi") {
         const picks = fd.getAll("pick");
         if (!picks.length) { toast("Spunta almeno una squadra"); if (btn) btn.disabled = false; return; }
@@ -1214,7 +1309,7 @@
       if (kind === "new-team") {
         const { data, error } = await sb.rpc("create_team", { p_name: v("name"), p_sport: S.ui.newSport || "basket", p_category: v("category"), p_season: v("season"), p_athletes: v("athletes") });
         if (error) throw error;
-        S.ui.newSport = null; toast("Squadra creata"); location.hash = "#/t/" + data.id + "/invita"; return;
+        S.ui.newSport = null; store("it-wizard-" + data.id, "2"); store("it-last-team", data.id); toast("Squadra creata"); location.hash = "#/t/" + data.id + "/trasferte"; return;
       }
       if (kind === "event") {
         const row = { team_id: f.dataset.id ? evTeam(f.dataset.id) : targetTeam(false).id, title: v("title"), starts_at: toISO(v("date"), v("time")), place: v("place"), notes: v("notes"), km_round_trip: v("km") ? Number(v("km")) : null };

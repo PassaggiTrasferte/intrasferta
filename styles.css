@@ -212,3 +212,26 @@ video.sp-thumb,img.sp-thumb{width:66px;height:22px;object-fit:cover}
 .join-row:first-of-type{border-top:none}
 .join-row .check{display:flex;gap:10px;align-items:center;font-weight:400;color:var(--ink)}
 .join-row .check input{width:22px;height:22px;min-height:0;flex:none}
+/* primo contatto e procedura guidata */
+.hero-sub{margin:10px 0 0;color:var(--navy-muted);font-size:1rem;max-width:34rem}
+.feat{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.feat div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 10px;display:grid;gap:6px;justify-items:center;text-align:center;font-size:.9rem;line-height:1.25}
+.feat span{font-size:1.5rem}
+.choice{display:grid;justify-items:start;justify-content:stretch;grid-template-columns:1fr;align-content:start;gap:4px;width:100%;min-height:0;text-align:left;background:var(--surface);border:2px solid var(--line);border-radius:14px;padding:16px 18px;color:var(--ink);text-decoration:none;cursor:pointer;font:inherit}
+.choice b{display:block;text-align:left;font-family:var(--display);font-size:1.35rem;text-transform:uppercase;line-height:1.1}
+.choice span{color:var(--muted);font-size:.95rem}
+.choice:hover{border-color:var(--brand)}
+.invite-banner h2{margin:2px 0}
+.wiz{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.wiz li{display:flex;align-items:center;gap:6px;font-size:.85rem;font-weight:600;color:var(--muted);padding:8px;border-radius:10px;background:var(--surface);border:1px solid var(--line)}
+.wiz li span{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--line);color:var(--ink);font-size:.8rem;font-weight:700}
+.wiz li.on{color:var(--ink);border-color:var(--brand)}
+.wiz li.on span,.wiz li.done span{background:var(--brand);color:#0B1018}
+.wiz-card{border:2px solid var(--brand)}
+.steps ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.steps li{display:flex;gap:10px;align-items:baseline}
+.steps li>span{flex:none;width:20px;color:var(--muted);font-weight:700}
+.steps li.ok{color:var(--muted);text-decoration:line-through}
+.steps li.ok>span{color:var(--accent-text);text-decoration:none}
+.tips{background:var(--accent-soft);border-color:transparent;gap:8px}
+@media (max-width:380px){.feat{grid-template-columns:1fr}.wiz li{font-size:.75rem}}
