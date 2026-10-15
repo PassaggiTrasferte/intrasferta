@@ -1264,12 +1264,15 @@
   const driverPhone = (r) => r.driver_phone || (r.kind === "parent" ? member(r.created_by).phone : "") || "";
 
   function reqBox(e, reqs) {
-    return `<div class="ride" style="border-style:dashed">
-      <div class="label">Cercano un passaggio</div>
-      <ul class="pax">${reqs.map((q) => {
+    return `<div class="reqs">
+      <div class="reqs-head"><span aria-hidden="true">🙋</span><b>Cercano un passaggio</b><span class="reqs-n">${reqs.length}</span></div>
+      <ul>${reqs.map((q) => {
         const mineQ = q.requested_by === S.user.id;
-        return `<li><span><b>${esc(q.athlete_name)}</b> <small>· ${esc(DIR[q.direction] || "")}${q.depart_from ? " · da " + esc(q.depart_from) : ""} · chiesto da ${esc(firstName(member(q.requested_by).name))}</small></span>
-          <span class="row">${!mineQ ? `<button class="btn-ok" data-act="take" data-id="${q.id}">Lo porto io</button>` : ""}${mineQ || isAdmin() ? `<button class="btn-link danger" data-act="del-req" data-id="${q.id}">Ritira richiesta</button>` : ""}</span></li>`;
+        const dir = DIR[q.direction] || "";
+        return `<li class="req"><div class="avatar sm" aria-hidden="true">${esc(initials(q.athlete_name))}</div>
+          <div class="req-main"><b>${esc(q.athlete_name)}</b>
+            <div class="req-meta">${dir ? `<span class="tag">${esc(dir.charAt(0).toUpperCase() + dir.slice(1))}</span>` : ""}${q.depart_from ? `<span class="tag">da ${esc(q.depart_from)}</span>` : ""}<span>chiesto da ${mineQ ? "te" : esc(firstName(member(q.requested_by).name))}</span></div></div>
+          <div class="req-act">${!mineQ ? `<button class="btn-ok" data-act="take" data-id="${q.id}">Lo porto io</button>` : ""}${mineQ || isAdmin() ? `<button class="btn-link danger" data-act="del-req" data-id="${q.id}">Ritira</button>` : ""}</div></li>`;
       }).join("")}</ul></div>`;
   }
 
