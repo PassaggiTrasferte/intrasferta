@@ -73,6 +73,7 @@ textarea{min-height:96px;resize:vertical}
 .chip.navy{background:var(--navy);color:var(--navy-ink)}
 .pill-group{display:flex;flex-wrap:wrap;gap:6px}
 .pill{min-height:40px;border-radius:999px;padding:0 14px;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+a.pill{display:inline-flex;align-items:center;text-decoration:none}
 .pill[aria-checked="true"]{background:var(--navy);color:var(--navy-ink);border-color:var(--navy)}
 .empty{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:24px;text-align:center;color:var(--muted)}
 .empty strong{display:block;color:var(--ink);font-family:var(--display);font-size:1.3rem;text-transform:uppercase;margin-bottom:4px}

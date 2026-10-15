@@ -162,15 +162,16 @@
     const parts = hash.slice(2).split("/");
     if (parts[0] === "join" && parts[1]) return viewJoin(decodeURIComponent(parts[1]));
     if (parts[0] === "new") return viewNewTeam();
+    if (parts[0] === "squadre") return viewHome(true);
     if (parts[0] === "profilo") return viewProfile();
     if (parts[0] === "admin") return viewAdmin();
     if (parts[0] === "t" && parts[1]) return viewTeam(parts[1], parts[2] || "trasferte");
     return viewHome();
   }
 
-  function topBar({ title, sub, back, tabs, active, teamId }) {
+  function topBar({ title, sub, back, backLabel, tabs, active, teamId }) {
     return `<header class="top"><div class="in">
-      ${back ? `<a class="iconbtn" href="${back}" aria-label="Indietro"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></a>` : ""}
+      ${back ? `<a class="iconbtn" href="${back}" aria-label="${esc(backLabel || "Indietro")}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></a>` : ""}
       <a class="brand" href="#/" aria-label="Carpoolino, home"><img src="icon.svg" alt="" width="38" height="38"><img src="logo.svg" alt="" class="wordmark"></a>
       <div class="grow"></div>
       <a class="iconbtn ring" href="#/profilo" aria-label="Profilo">${esc(initials(S.profile?.display_name))}</a>
@@ -185,7 +186,7 @@
   const footer = () => `<footer class="foot">Carpoolino beta · solo coordinamento tra famiglie, nessun pagamento · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
 
   // ---------- home: le mie squadre ----------
-  async function viewHome() {
+  async function viewHome(stay) {
     unsubscribe();
     $app.innerHTML = topBar({}) + `<div class="wrap"><div class="boot">Carico le tue squadre…</div></div>`;
     const uid = S.user.id;
@@ -193,6 +194,7 @@
     if (error) return toast(errMsg(error));
     S.memberships = mems || [];
     const ids = S.memberships.filter((m) => m.status === "active").map((m) => m.team_id);
+    if (!stay && ids.length) { const last = store("it-last-team"); location.replace("#/t/" + (ids.includes(last) ? last : ids[0]) + "/trasferte"); return; }
     let teams = [], events = [], rides = [], bookings = [];
     if (ids.length) {
       teams = (await sb.from("teams").select("*").in("id", ids)).data || [];
@@ -283,9 +285,9 @@
         <label class="full">Cellulare (per WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="333 1234567" value="${esc(S.profile.phone || "")}"></label>
         <div class="full small muted">Il numero è visibile solo ai genitori delle tue squadre.</div>
         <div class="full small muted">Accesso con: ${esc(S.user.email || "")}</div>
-        <div class="actions"><button class="btn-primary" type="submit">Salva e torna alle squadre</button></div>
+        <div class="actions"><button class="btn-primary" type="submit">Salva e torna alle trasferte</button></div>
       </form>
-      <a class="btn btn-ghost btn-block" href="#/">← Torna alle mie squadre</a>
+      <a class="btn btn-ghost btn-block" href="#/">← Torna alle trasferte</a>
       ${S.platformAdmin ? `<a class="btn btn-primary btn-block" href="#/admin">Pannello di amministrazione</a>` : ""}
       <div class="card small">
         ${S.ui.confirmLogout ? `<div><b>Vuoi uscire da Carpoolino su questo dispositivo?</b></div>
@@ -462,25 +464,51 @@
     renderTeam();
   }
 
+  // squadre in cui l'utente è amministratore (tra quelle caricate)
+  const adminTeamIds = () => (S.teamOrder || [S.team.id]).filter((tid) => { const m = (S.mesById || {})[tid] || (tid === S.team.id ? S.me : null); return m && m.role === "admin" && m.status === "active"; });
+  const ADMIN_TABS = ["mezzi", "report", "sponsor", "impostazioni"];
+  const teamById = (tid) => (S.teamsById && S.teamsById[tid]) || (tid === S.team.id ? S.team : null);
+  function targetTeam(needPremium) {
+    let ids = adminTeamIds(); if (needPremium) ids = ids.filter((tid) => premium(teamById(tid)));
+    const id = ids.includes(S.ui.adminTeam) ? S.ui.adminTeam : ids.includes(S.team.id) ? S.team.id : ids[0];
+    return teamById(id) || S.team;
+  }
+  function teamSelect(needPremium) {
+    let ids = adminTeamIds(); if (needPremium) ids = ids.filter((tid) => premium(teamById(tid)));
+    if (ids.length < 2 && ids[0] === S.team.id && !S.multi) return "";
+    const cur = targetTeam(needPremium).id;
+    return `<label class="full">Squadra<select name="target-team" data-act-change="target-team">${ids.map((tid) => `<option value="${tid}" ${tid === cur ? "selected" : ""}>${esc(teamById(tid).name)}</option>`).join("")}</select></label>`;
+  }
   function teamTabs() {
     const tabs = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"], ["risparmio", "Risparmio"]];
-    if (isAdmin()) tabs.push(["mezzi", "Mezzi"], ["report", "Report"]);
-    if (isAdmin() && premium()) tabs.push(["sponsor", "Sponsor"]);
-    if (isAdmin()) tabs.push(["impostazioni", "Squadra"]);
+    const adm = adminTeamIds();
+    if (adm.length) tabs.push(["mezzi", "Mezzi"], ["report", "Report"]);
+    if (adm.some((tid) => premium(S.teamsById ? S.teamsById[tid] : S.team))) tabs.push(["sponsor", "Sponsor"]);
+    if (adm.length) tabs.push(["impostazioni", "Squadra"]);
     return tabs;
+  }
+  // scelta della squadra nelle sezioni che riguardano una sola squadra
+  function teamSwitch() {
+    if (!S.multi) return "";
+    let ids = ADMIN_TABS.includes(currentTab) ? adminTeamIds() : S.teamOrder.slice();
+    if (currentTab === "sponsor") ids = ids.filter((tid) => premium(S.teamsById[tid]));
+    if (ids.length < 2) return `<div class="small muted">Squadra: <b>${esc(S.team.name)}</b></div>`;
+    ids.sort((a, b) => S.teamsById[a].name.localeCompare(S.teamsById[b].name));
+    return `<div class="pill-group" role="radiogroup" aria-label="Squadra">${ids.map((tid) => `<a class="pill" role="radio" aria-checked="${tid === S.team.id}" href="#/t/${tid}/${currentTab}" title="${esc(S.teamsById[tid].name)}">${esc(S.teamsById[tid].category || S.teamsById[tid].name)}</a>`).join("")}</div>`;
   }
 
   function renderTeam() {
     const t = S.team;
     const tabs = teamTabs();
     if (!tabs.some(([k]) => k === currentTab)) currentTab = "trasferte";
-    const sub = S.multi && (currentTab === "trasferte" || currentTab === "risparmio")
-      ? `Le tue squadre: ${S.teamOrder.map((x) => S.teamsById[x].category || S.teamsById[x].name).join(" · ")}`
-      : `${sportOf(t).label}${t.category ? " · " + t.category : ""} · ${t.season}`;
-    const head = topBar({ title: t.name, sub, back: "#/", tabs, active: currentTab, teamId: t.id });
+    store("it-last-team", t.id);
+    // sezione da amministratore aperta su una squadra dove non lo sei: passa a una tua squadra
+    if (ADMIN_TABS.includes(currentTab) && !isAdmin()) { const a = adminTeamIds()[0]; if (a) { location.replace("#/t/" + a + "/" + currentTab); return; } currentTab = "trasferte"; }
+    if (currentTab === "sponsor" && !premium()) { const a = adminTeamIds().find((tid) => premium(S.teamsById[tid])); if (a && a !== t.id) { location.replace("#/t/" + a + "/sponsor"); return; } }
+    const head = topBar({ back: "#/squadre", backLabel: "Le mie squadre", tabs, active: currentTab, teamId: t.id });
     const fn = { trasferte: tabTrips, membri: tabMembers, invita: tabInvite, risparmio: tabSavings, mezzi: tabVehicles, report: tabReport, sponsor: tabSponsors, impostazioni: tabSettings }[currentTab];
     // trasferte e risparmio mostrano tutte le squadre; le altre sezioni solo la squadra aperta
-    const body = currentTab === "trasferte" || currentTab === "risparmio" ? fn() : withTeam(t.id, fn);
+    const body = currentTab === "trasferte" || currentTab === "risparmio" ? fn() : teamSwitch() + withTeam(t.id, fn);
     const y = window.scrollY;
     const curSp = document.querySelector(".sp-banner")?.dataset.cur;
     $app.innerHTML = head + `<div class="wrap">${waPanel()}${t.plan === "beta" && isAdmin() && currentTab === "trasferte" ? `<div class="notice small">Versione beta: tutte le funzioni Premium sono attive gratuitamente.</div>` : ""}${body}</div>` + footer();
@@ -516,9 +544,9 @@
     const past = S.events.filter((e) => new Date(e.starts_at).getTime() < cut).reverse();
     const admin = isAdmin();
     return `
-      ${canAddEvents() ? `<div class="row noprint">
+      ${adminTeamIds().length ? `<div class="row noprint">
         ${S.ui.newEvent ? "" : `<button class="btn-primary" data-act="new-event">+ Aggiungi trasferta</button>`}
-        ${admin && premium() ? `<button class="btn-ghost" data-act="ai-open">Importa calendario con l'AI</button>` : ""}
+        ${adminTeamIds().some((tid) => premium(teamById(tid))) ? `<button class="btn-ghost" data-act="ai-open">Importa calendario con l'AI</button>` : ""}
       </div>` : ""}
       ${sponsorBanner()}
       ${S.ui.newEvent ? eventForm(null, L) : ""}
@@ -667,6 +695,7 @@
     const p = e ? dateParts(e.starts_at) : null;
     return `<form class="card form" data-form="event" data-id="${e ? e.id : ""}">
       <h3 class="full">${e ? "Modifica trasferta" : "Nuova trasferta"}</h3>
+      ${e ? "" : teamSelect(false)}
       <label class="full">${esc(L.event)}<input name="title" required minlength="2" maxlength="120" value="${esc(e?.title || "")}" placeholder="Es. Vanoliyoung - ${esc(S.team.name)}"></label>
       <label>Data<input name="date" type="date" required value="${p ? p.ymd : ""}"></label>
       <label>${esc(L.time)}<input name="time" type="time" value="${p ? p.time : ""}"></label>
@@ -820,6 +849,7 @@
     return `<div class="card">
       <h3>Importa calendario con l'AI</h3>
       ${!prev ? `<form class="form" data-form="ai">
+        ${teamSelect(true)}
         <p class="full small muted" style="margin:0">Carica il calendario ufficiale (PDF o foto/screenshot) oppure incolla il testo. L'AI trova le partite: tu controlli e confermi prima di salvare.</p>
         <label class="full">File (PDF, JPG, PNG · max 5 MB)<input name="file" type="file" accept="application/pdf,image/png,image/jpeg,image/webp"></label>
         <label class="full">…oppure incolla il testo<textarea name="text" maxlength="20000" placeholder="15/10/2026 20:30 Vanoliyoung - ${esc(S.team.name)}"></textarea></label>
@@ -1075,6 +1105,8 @@
   document.addEventListener("change", (ev) => {
     const sel = ev.target.closest('select[name="vehicle"]');
     if (sel) { const o = sel.selectedOptions[0]; const f = sel.form; if (o && f.elements.seats) f.elements.seats.value = o.dataset.seats; }
+    const tt = ev.target.closest('select[name="target-team"]');
+    if (tt) S.ui.adminTeam = tt.value;
   });
 
   function rerenderSp() { if (location.hash.startsWith("#/admin")) renderAdmin(); else renderTeam(); }
@@ -1129,7 +1161,7 @@
         S.ui.newSport = null; toast("Squadra creata"); location.hash = "#/t/" + data.id + "/invita"; return;
       }
       if (kind === "event") {
-        const row = { team_id: f.dataset.id ? evTeam(f.dataset.id) : S.team.id, title: v("title"), starts_at: toISO(v("date"), v("time")), place: v("place"), notes: v("notes"), km_round_trip: v("km") ? Number(v("km")) : null };
+        const row = { team_id: f.dataset.id ? evTeam(f.dataset.id) : targetTeam(false).id, title: v("title"), starts_at: toISO(v("date"), v("time")), place: v("place"), notes: v("notes"), km_round_trip: v("km") ? Number(v("km")) : null };
         const q = f.dataset.id ? sb.from("events").update(row).eq("id", f.dataset.id) : sb.from("events").insert({ ...row, created_by: S.user.id });
         const { error } = await q; if (error) throw error; toast(f.dataset.id ? "Trasferta aggiornata" : "Trasferta aggiunta");
       }
@@ -1186,21 +1218,23 @@
         if (error) throw error; S.ui.editSport = null; toast("Salvato");
       }
       if (kind === "ai") {
+        const TT = targetTeam(true);
         const file = fd.get("file"); const text = v("text");
         if ((!file || !file.size) && !text) { toast("Carica un file o incolla il testo"); if (btn) btn.disabled = false; return; }
         if (file && file.size > 5 * 1024 * 1024) { toast("File troppo grande (max 5 MB)"); if (btn) btn.disabled = false; return; }
         if (btn) btn.textContent = "Sto leggendo…";
-        const body = { team_id: S.team.id, team_name: S.team.name, sport: S.team.sport, season: S.team.season };
+        const body = { team_id: TT.id, team_name: TT.name, sport: TT.sport, season: TT.season };
         if (file && file.size) { body.media_type = file.type; body.data = await fileToBase64(file); } else body.text = text;
         const { data, error } = await sb.functions.invoke("import-calendar", { body });
-        if (error) { logEvent("ai_import_error", S.team.id); throw error; }
-        logEvent(data && data.events && data.events.length ? "ai_import_ok" : "ai_import_empty", S.team.id, data && data.events ? data.events.length : 0);
+        if (error) { logEvent("ai_import_error", TT.id); throw error; }
+        logEvent(data && data.events && data.events.length ? "ai_import_ok" : "ai_import_empty", TT.id, data && data.events ? data.events.length : 0);
         if (!data || !Array.isArray(data.events) || !data.events.length) { toast("Nessuna partita trovata nel documento"); if (btn) { btn.disabled = false; btn.textContent = "Leggi il calendario"; } return; }
         S.aiPreview = data.events; renderTeam(); return;
       }
       if (kind === "ai-confirm") {
+        const TT = targetTeam(true);
         const picks = fd.getAll("pick").map(Number);
-        const rows = picks.map((i) => { const e = S.aiPreview[i]; const km = fd.get("km-" + i); return { team_id: S.team.id, title: String(e.title).slice(0, 120), starts_at: toISO(e.date, e.time), place: String(e.place || "").slice(0, 200), notes: "", km_round_trip: km ? Number(km) : null, created_by: S.user.id }; });
+        const rows = picks.map((i) => { const e = S.aiPreview[i]; const km = fd.get("km-" + i); return { team_id: TT.id, title: String(e.title).slice(0, 120), starts_at: toISO(e.date, e.time), place: String(e.place || "").slice(0, 200), notes: "", km_round_trip: km ? Number(km) : null, created_by: S.user.id }; });
         if (!rows.length) { toast("Seleziona almeno una trasferta"); if (btn) btn.disabled = false; return; }
         const { error } = await sb.from("events").insert(rows); if (error) throw error;
         toast(rows.length === 1 ? "1 trasferta aggiunta" : rows.length + " trasferte aggiunte"); S.ui.ai = false; S.aiPreview = null;
