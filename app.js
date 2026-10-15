@@ -198,7 +198,7 @@
     let teams = [], events = [], rides = [], bookings = [];
     if (ids.length) {
       teams = (await sb.from("teams").select("*").in("id", ids)).data || [];
-      const now = new Date(Date.now() - 6 * 3600e3).toISOString();
+      const now = new Date().toISOString();
       events = (await sb.from("events").select("id,team_id,title,starts_at").in("team_id", ids).gte("starts_at", now).order("starts_at")).data || [];
       const evIds = events.map((e) => e.id);
       if (evIds.length) {
@@ -539,7 +539,7 @@
 
   function tabTrips() {
     const L = sportOf(S.team);
-    const cut = Date.now() - 6 * 3600e3;
+    const cut = Date.now(); // dall'ora di inizio la trasferta passa tra quelle passate
     const up = S.events.filter((e) => new Date(e.starts_at).getTime() >= cut);
     const past = S.events.filter((e) => new Date(e.starts_at).getTime() < cut).reverse();
     const admin = isAdmin();
