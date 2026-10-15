@@ -288,3 +288,9 @@ body.dark .ver{color:var(--navy-muted)}
 /* pulsanti grandi di scelta: testo centrato */
 .choice{justify-items:center;text-align:center}
 .choice b,.choice span{text-align:center}
+/* figli: nome e cognome affiancati */
+.kids{display:grid;gap:8px}
+.kid-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kid-row label{display:grid;gap:4px;font-size:.88rem;font-weight:600;color:var(--muted)}
+.join-row .kid-row label{font-weight:600}
+.form label.check-pill{display:inline-flex;color:var(--ink)}

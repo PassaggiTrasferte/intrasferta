@@ -58,7 +58,9 @@
     request_gone: "Questa richiesta non c'è più.",
     only_admins_create_teams: "Solo gli amministratori possono creare una squadra. Per una nuova società scrivi al supporto.",
     need_own_ride:"Prima offri il tuo passaggio su questa trasferta, poi premi di nuovo «Lo porto io».",
-    own_ride_full: "La tua auto è piena."
+    own_ride_full: "La tua auto è piena.",
+    athlete_name_required: "Scrivi il nome del ragazzo.",
+    too_many_athletes: "Hai già inserito molti ragazzi in questa squadra."
   };
   function errMsg(e) {
     const m = (e && (e.message || e.error_description || e.msg)) || "";
@@ -108,8 +110,55 @@
     S.profile = data || { id: S.user.id, display_name: "", phone: "" };
     try { S.platformAdmin = (await sb.rpc("is_platform_admin")).data === true; } catch (e) { S.platformAdmin = false; }
     if (S.profile.phone == null) S.profile.phone = "";
-    await loadConsents();
+    await Promise.all([loadConsents(), loadMyKids()]);
     return S.profile;
+  }
+
+  // ---------- figli: ogni ragazzo è una scheda per squadra, collegata a uno o più genitori ----------
+  const fullName = (f, l) => (String(f || "").trim() + " " + String(l || "").trim()).trim();
+  const normN = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
+  async function loadMyKids() {
+    try {
+      const { data, error } = await sb.from("athlete_parents").select("athlete_id,team_id,athletes(id,team_id,first_name,last_name,label)").eq("user_id", S.user.id);
+      if (error) throw error;
+      S.myKids = (data || []).map((r) => r.athletes).filter(Boolean);
+    } catch (e) { S.myKids = null; } // aggiornamento del database non ancora applicato
+  }
+  const kidRow = (f, l, req, sfx) => `<div class="kid-row"><label>Nome<input name="kf${sfx || ""}" maxlength="40" autocomplete="off" ${req ? "required" : ""} value="${esc(f || "")}"></label><label>Cognome<input name="kl${sfx || ""}" maxlength="40" autocomplete="off" ${req ? "required" : ""} value="${esc(l || "")}"></label></div>`;
+  const kidsBlock = (title, req) => `<div class="full kids"><div class="label">${title}</div>${kidRow("", "", req)}<div><button type="button" class="btn-link" data-act="kid-more">+ Aggiungi un altro figlio</button></div></div>`;
+  function readKids(fd, sfx) {
+    const fs = fd.getAll("kf" + (sfx || "")), ls = fd.getAll("kl" + (sfx || ""));
+    return fs.map((f, i) => ({ first: String(f).trim(), last: String(ls[i] || "").trim() })).filter((k) => k.first);
+  }
+  const kidsMissingSurname = (kids) => kids.find((k) => !k.last);
+  // finestra di domanda sì/no, sopra la pagina
+  function askModal(title, html, yes, no) {
+    return new Promise((res) => {
+      const d = document.createElement("div"); d.className = "modal-back";
+      d.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><h2>${title}</h2>${html}<div class="stack" style="display:grid;gap:8px"><button type="button" class="btn-primary btn-block" data-m="y">${yes}</button><button type="button" class="btn-ghost btn-block" data-m="n">${no}</button></div></div>`;
+      d.addEventListener("click", (e) => { const b = e.target.closest("[data-m]"); if (!b) return; d.remove(); res(b.dataset.m === "y"); });
+      document.body.appendChild(d); d.querySelector("[data-m=y]").focus();
+    });
+  }
+  // il ragazzo c'è già in squadra (inserito dall'altro genitore)? Restituisce l'id a cui collegarsi, oppure null
+  async function resolveKid(kid, where) {
+    const { data, error } = await sb.rpc("athlete_matches", { p_first: kid.first, p_last: kid.last, p_team: where.team || null, p_code: where.code || null });
+    if (error || !data || !data.length) return null;
+    const typed = fullName(kid.first, kid.last);
+    for (const m of data) {
+      const by = m.parents ? `L'ha inserito <b>${esc(m.parents)}</b>.` : "";
+      const ok = m.exact
+        ? await askModal(`${esc(m.label)} è già in squadra`, `<p style="margin:0">${by} Sei anche tu un genitore di ${esc(kid.first)}?</p><p class="small muted" style="margin:0">Con «Sì» vedrai e gestirai le sue prenotazioni${m.parents ? `; ${esc(firstName(m.parents))} riceve un avviso` : ""}.</p>`, `Sì, sono un genitore di ${esc(kid.first)}`, "No, è un altro ragazzo")
+        : await askModal(`Intendevi ${esc(m.label)}?`, `<p style="margin:0">Hai scritto <b>${esc(typed)}</b>. In squadra c'è già <b>${esc(m.label)}</b>${m.parents ? `, inserito da ${esc(m.parents)}` : ""}.</p>`, `Sì, è ${esc(m.label)}`, "No, il nome è giusto così");
+      if (ok) return m.id;
+    }
+    return null;
+  }
+  async function addKids(teamId, kids, links) {
+    for (let i = 0; i < kids.length; i++) {
+      const { error } = await sb.rpc("add_athlete", { p_team: teamId, p_first: kids[i].first, p_last: kids[i].last, p_link: links[i] || null });
+      if (error) throw error;
+    }
   }
 
   // ---------- consensi ----------
@@ -288,11 +337,29 @@
     $app.innerHTML = `<div class="wrap narrow">
       <h1>Come ti chiami?</h1>
       <form class="card form" data-form="profile-name">
-        <label class="full">Il tuo nome, come ti vedranno gli altri genitori<input name="name" required maxlength="80" placeholder="${store("it-next") === "#/new" ? "Es. Marco Rossi, allenatore" : "Es. Paolo, papà di Matteo"}" value="${esc(S.profile?.display_name || "")}"></label>
+        <label>Nome<input name="first" required maxlength="40" autocomplete="given-name" value="${esc(S.profile?.first_name || "")}"></label>
+        <label>Cognome<input name="last" required maxlength="40" autocomplete="family-name" value="${esc(S.profile?.last_name || "")}"></label>
+        <p class="full small muted" style="margin:0">Così ti vedranno gli altri genitori della squadra.</p>
         <label class="full">Il tuo cellulare (per gli avvisi WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="333 1234567" value="${esc(S.profile?.phone || "")}"></label>
         <p class="full small muted" style="margin:0">Il numero lo vedono solo i genitori delle tue squadre: serve per avvisare con un tocco chi guida o chi ha prenotato.</p>
         <div class="actions"><button class="btn-primary" type="submit">Continua</button></div>
       </form></div>`;
+  }
+
+  // una volta sola per chi era già registrato: cognome proprio e dei figli
+  function viewFillSurnames() {
+    const groups = {};
+    (S.myKids || []).filter((k) => !k.last_name).forEach((k) => { const g = normN(k.first_name); (groups[g] = groups[g] || { first: k.first_name, ids: [] }).ids.push(k.id); });
+    const me = !S.profile.last_name;
+    $app.innerHTML = `<div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="fill-title">
+      <img src="icon.svg" alt="" width="56" height="56" class="modal-icon">
+      <h2 id="fill-title">Completa i cognomi</h2>
+      <p style="margin:0">Ora nome e cognome sono separati: così si distinguono i ragazzi con lo stesso nome e mamma e papà vedono le stesse prenotazioni.</p>
+      <form class="form" data-form="fill-names">
+        ${me ? `<label>Il tuo nome<input name="first" required maxlength="40" value="${esc(S.profile.first_name || firstName(S.profile.display_name))}"></label><label>Il tuo cognome<input name="last" required maxlength="40" autocomplete="family-name"></label>` : ""}
+        ${Object.entries(groups).map(([g, k]) => `<label>Tuo figlio<input name="kidf-${esc(k.ids.join(","))}" required maxlength="40" value="${esc(k.first)}"></label><label>Cognome<input name="kidl-${esc(k.ids.join(","))}" required maxlength="40" value="${esc(S.profile.last_name || "")}"></label>`).join("")}
+        <div class="actions"><button class="btn-primary btn-block" type="submit">Salva</button></div>
+      </form></div></div>`;
   }
 
   const logEvent = (kind, team, qty) => { if (!hasConsent("stats")) return; try { sb.rpc("log_event", { p_kind: kind, p_team: team || null, p_qty: qty || 0 }).then(() => {}, () => {}); } catch (e) { /* facoltativo */ } };
@@ -308,6 +375,7 @@
     try { await ensureProfile(); } catch (e) { toast(errMsg(e)); }
     if (!consentsOk()) return viewConsents();
     if (!S.profile?.display_name) return viewName();
+    if (S.myKids && (!S.profile.last_name || S.myKids.some((k) => !k.last_name))) return viewFillSurnames();
     logOpenOncePerDay();
     const next = store("it-next");
     if (next) { store("it-next", null); if (next !== hash) { location.hash = next; return; } }
@@ -316,7 +384,7 @@
     if (parts[0] === "join" && parts[1]) return viewJoin(decodeURIComponent(parts[1]));
     if (parts[0] === "new") return viewNewTeam();
     if (parts[0] === "squadre") return viewHome(true);
-    if (parts[0] === "profilo") return viewProfile();
+    if (parts[0] === "profilo") return viewProfile(true);
     if (parts[0] === "admin") return viewAdmin();
     if (parts[0] === "t" && parts[1]) return viewTeam(parts[1], parts[2] || "trasferte");
     return viewHome();
@@ -405,7 +473,7 @@
         <label class="full">Nome squadra<input name="name" required minlength="2" maxlength="80" placeholder="Es. Urania Milano U17"></label>
         <label>Categoria<input name="category" maxlength="40" placeholder="Es. U17"></label>
         <label>Stagione<input name="season" maxlength="20" value="2026/27"></label>
-        <label class="full">Tuo figlio gioca in questa squadra? Scrivi il suo nome (facoltativo)<input name="athletes" maxlength="200" placeholder="Es. Luca — più nomi separati da virgola"></label>
+        ${kidsBlock("Tuo figlio gioca in questa squadra? (facoltativo)", false)}
         <div class="full intro"><div class="label">Così vedranno le pagine i genitori</div>
           <div class="small">Luogo: <b>${esc(L.place)}</b> · Orario: <b>${esc(L.time)}</b> · Evento: <b>${esc(L.event)}</b></div></div>
         <label class="full check declare"><input name="role-ok" type="checkbox" required> <span>Sono l'allenatore o un dirigente di questa squadra e accetto i <a href="#/termini" target="_blank">Termini</a> per le società: mezzi, autisti e coperture assicurative della società restano sotto la sua responsabilità.</span></label>
@@ -431,10 +499,12 @@
       <div class="intro"><div class="label">Ti hanno invitato in</div><h1>${esc(t.team_name)}</h1>
         <div class="meta">${esc((SPORTS[t.sport] || SPORTS.altro).label)}${t.category ? " · " + esc(t.category) : ""} · ${esc(t.season)}</div></div>
       <form class="card form" data-form="join" data-code="${esc(code)}">
-        <label class="full">Nome del tuo atleta<input name="athletes" required maxlength="200" placeholder="Es. Luca — più nomi separati da virgola"></label>
+        ${kidsBlock("I tuoi figli in " + esc(t.team_name), true)}
+        <p class="full small muted" style="margin:0">Se anche l'altro genitore si registra, basta che scriva lo stesso nome e cognome: vi riconosciamo come genitori dello stesso ragazzo e vedete le stesse prenotazioni.</p>
         <div class="actions"><button class="btn-primary btn-block" type="submit">Entra nella squadra</button></div>
-        <p class="full small muted" style="margin:0">Gli altri membri della squadra vedranno il tuo nome e quello del tuo atleta.</p>
+        <p class="full small muted" style="margin:0">Gli altri membri della squadra vedranno il tuo nome e quello dei tuoi figli.</p>
       </form></div>`;
+    const ln = document.querySelector('[data-form="join"] input[name="kl"]'); if (ln && S.profile.last_name) ln.value = S.profile.last_name;
   }
 
   async function viewJoinMulti(codes) {
@@ -451,30 +521,78 @@
     const open = rows.filter((r) => r.t && !r.member);
     $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow">
       <div class="intro"><div class="label">Ti hanno invitato in ${rows.filter((r) => r.t).length} squadre</div>
-        <div class="small muted">Spunta le squadre in cui gioca un tuo figlio e scrivi il suo nome accanto.</div></div>
+        <div class="small muted">Spunta le squadre in cui gioca un tuo figlio e scrivi nome e cognome. Altri figli li aggiungi poi da Profilo › I miei figli.</div></div>
       <form class="card form" data-form="join-multi">
         ${rows.map((r) => !r.t ? `<div class="full small muted">Un codice dell'invito non è più valido (${esc(r.code)}).</div>`
           : r.member ? `<div class="full"><b>${esc(r.t.team_name)}</b> <span class="chip ok">ci sei già</span></div>`
           : `<div class="full join-row">
               <label class="check"><input type="checkbox" name="pick" value="${esc(r.code)}" ${open.length === 1 ? "checked" : ""}> <span><b>${esc(r.t.team_name)}</b><span class="small muted"> · ${esc((SPORTS[r.t.sport] || SPORTS.altro).label)}${r.t.category ? " · " + esc(r.t.category) : ""}</span></span></label>
-              <input name="ath-${esc(r.code)}" maxlength="200" placeholder="Nome dell'atleta in questa squadra" aria-label="Nome dell'atleta in ${esc(r.t.team_name)}">
+              ${kidRow("", S.profile.last_name || "", false, "-" + esc(r.code))}
             </div>`).join("")}
         ${open.length ? `<div class="actions"><button class="btn-primary btn-block" type="submit">Entra nelle squadre scelte</button></div>
-        <p class="full small muted" style="margin:0">Gli altri membri di ogni squadra vedranno il tuo nome e quello del tuo atleta.</p>` : `<div class="full"><a class="btn btn-primary btn-block" href="#/">Vai alle trasferte</a></div>`}
+        <p class="full small muted" style="margin:0">Gli altri membri di ogni squadra vedranno il tuo nome e quello di tuo figlio.</p>` : `<div class="full"><a class="btn btn-primary btn-block" href="#/">Vai alle trasferte</a></div>`}
       </form></div>`;
   }
 
   // ---------- profilo ----------
-  function viewProfile() {
+  // squadre e genitori dei miei figli, per la scheda "I miei figli"
+  async function loadKidsCtx() {
+    await loadMyKids();
+    const { data: mem } = await sb.from("team_members").select("team_id,status").eq("user_id", S.user.id);
+    const ids = (mem || []).map((m) => m.team_id);
+    const teams = ids.length ? (await sb.from("teams").select("id,name,category").in("id", ids)).data || [] : [];
+    S.myTeams = teams.sort((a, b) => a.name.localeCompare(b.name));
+    const kidIds = (S.myKids || []).map((k) => k.id);
+    const links = kidIds.length ? (await sb.from("athlete_parents").select("athlete_id,user_id").in("athlete_id", kidIds)).data || [] : [];
+    const uids = [...new Set(links.map((l) => l.user_id))];
+    const prof = uids.length ? (await sb.from("profiles").select("id,first_name,display_name").in("id", uids)).data || [] : [];
+    S.kidParents = {};
+    links.forEach((l) => { const p = prof.find((x) => x.id === l.user_id) || {}; (S.kidParents[l.athlete_id] = S.kidParents[l.athlete_id] || []).push(p.first_name || firstName(p.display_name) || "genitore"); });
+  }
+  // un figlio può essere in più squadre: si raggruppa per nome e cognome
+  function kidGroups() {
+    const g = {};
+    (S.myKids || []).forEach((k) => { const key = normN(fullName(k.first_name, k.last_name)); (g[key] = g[key] || { key, first: k.first_name, last: k.last_name, recs: [] }).recs.push(k); });
+    return Object.values(g).sort((a, b) => a.first.localeCompare(b.first));
+  }
+  function kidsCard() {
+    if (S.myKids === null) return "";
+    const groups = kidGroups(), ed = S.ui.kidEdit;
+    const tname = (tid) => { const t = (S.myTeams || []).find((x) => x.id === tid); return t ? t.name : "squadra"; };
+    const form = (gr) => `<form class="form" data-form="kid" data-key="${esc(gr ? gr.key : "")}" style="border-top:1px solid var(--line);padding-top:12px">
+        <div class="full label">${gr ? "Modifica" : "Aggiungi figlio"}</div>
+        <label>Nome<input name="first" required maxlength="40" value="${esc(gr ? gr.first : "")}"></label>
+        <label>Cognome<input name="last" required maxlength="40" value="${esc(gr ? gr.last : S.profile.last_name || "")}"></label>
+        <div class="full"><div class="label" style="margin-bottom:6px">In quali squadre gioca?</div>
+          ${(S.myTeams || []).length ? `<div class="pill-group">${S.myTeams.map((t) => `<label class="pill check-pill"><input type="checkbox" name="team" value="${t.id}" ${gr ? (gr.recs.some((r) => r.team_id === t.id) ? "checked" : "") : S.myTeams.length === 1 ? "checked" : ""}> ${esc(t.name)}</label>`).join("")}</div>` : `<div class="small muted">Non sei ancora in nessuna squadra.</div>`}
+          <p class="small muted" style="margin:6px 0 0">Per una squadra nuova usa il codice d'invito che ti ha dato l'allenatore o la società.${gr ? " Togli la spunta per toglierlo da una squadra." : ""}</p></div>
+        <div class="actions"><button class="btn-primary" type="submit">Salva</button><button class="btn-ghost" type="button" data-act="kid-cancel">Annulla</button></div>
+      </form>`;
+    return `<div class="card" id="figli">
+      <div class="between"><h3 style="margin:0">I miei figli</h3>${ed ? "" : `<button class="btn-ghost" data-act="kid-new">+ Aggiungi figlio</button>`}</div>
+      ${groups.length ? groups.map((gr) => `<div class="member"><div class="avatar">${esc(initials(fullName(gr.first, gr.last)))}</div>
+          <div style="flex:1;min-width:0"><b>${esc(fullName(gr.first, gr.last))}</b>
+            <div class="small muted">${esc(gr.recs.map((r) => tname(r.team_id)).join(" · "))}</div>
+            <div class="small muted">Genitori: ${esc([...new Set(gr.recs.flatMap((r) => (S.kidParents || {})[r.id] || []))].join(", "))}</div></div>
+          ${ed ? "" : `<button class="btn-link" data-act="kid-edit" data-id="${esc(gr.key)}">Modifica</button>`}</div>
+          ${ed === gr.key ? form(gr) : ""}`).join("") : `<div class="small muted">Nessun figlio indicato.</div>`}
+      ${ed === "new" ? form(null) : ""}
+    </div>`;
+  }
+
+  async function viewProfile(fresh) {
     unsubscribe();
+    if (fresh || !S.myTeams) { try { await loadKidsCtx(); } catch (e) { /* mostra il resto del profilo */ } }
     $app.innerHTML = topBar({ title: "Profilo", back: "#/" }) + `<div class="wrap narrow">
       <form class="card form" data-form="profile-name">
-        <label class="full">Il tuo nome<input name="name" required maxlength="80" value="${esc(S.profile.display_name)}"></label>
+        <label>Nome<input name="first" required maxlength="40" autocomplete="given-name" value="${esc(S.profile.first_name || firstName(S.profile.display_name))}"></label>
+        <label>Cognome<input name="last" ${S.myKids === null ? "" : "required"} maxlength="40" autocomplete="family-name" value="${esc(S.profile.last_name || "")}"></label>
         <label class="full">Cellulare (per WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="333 1234567" value="${esc(S.profile.phone || "")}"></label>
         <div class="full small muted">Il numero è visibile solo ai genitori delle tue squadre.</div>
         <div class="full small muted">Accesso con: ${esc(S.user.email || "")}</div>
         <div class="actions"><button class="btn-primary" type="submit">Salva e torna alle trasferte</button></div>
       </form>
+      ${kidsCard()}
       <a class="btn btn-ghost btn-block" href="#/">← Torna alle trasferte</a>
       ${S.platformAdmin ? `<a class="btn btn-primary btn-block" href="#/admin">Pannello di amministrazione</a>` : ""}
       ${privacyCard()}
@@ -517,6 +635,7 @@
     const teams = ids.length ? (await sb.from("teams").select("id,name,category,season").in("id", ids)).data || [] : [];
     const out = { esportato_il: new Date().toISOString(), email: S.user.email, profilo: { nome: S.profile.display_name, cellulare: S.profile.phone },
       squadre: (mem.data || []).map((m) => ({ ...m, squadra: (teams.find((t) => t.id === m.team_id) || {}).name })),
+      figli: (S.myKids || []).map((k) => ({ nome: k.first_name, cognome: k.last_name, squadra: (teams.find((t) => t.id === k.team_id) || {}).name })),
       auto_offerte: rides.data || [], prenotazioni: books.data || [], richieste: reqs.data || [], consensi: S.consentLog || [] };
     const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "carpoolino-i-miei-dati.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
@@ -608,7 +727,13 @@
       sb.from("vehicles").select("*").eq("team_id", id).order("created_at"),
       sb.from("ride_requests").select("*").eq("team_id", id).order("created_at")
     ]);
-    return { team: t.data, me: me.data, members: (mem.data || []).map((m) => ({ ...m, team_id: m.team_id || id })), events: ev.data || [], rides: ri.data || [], bookings: bo.data || [], vehicles: ve.data || [], requests: rq.data || [] };
+    // ragazzi della squadra con i loro genitori (null se il database non è ancora aggiornato)
+    let athletes = null;
+    try {
+      const [at, ap] = await Promise.all([sb.from("athletes").select("id,team_id,first_name,last_name,label").eq("team_id", id), sb.from("athlete_parents").select("athlete_id,user_id").eq("team_id", id)]);
+      if (!at.error && !ap.error) athletes = (at.data || []).map((a) => ({ ...a, parents: (ap.data || []).filter((x) => x.athlete_id === a.id).map((x) => x.user_id) }));
+    } catch (e) { athletes = null; }
+    return { team: t.data, me: me.data, members: (mem.data || []).map((m) => ({ ...m, team_id: m.team_id || id })), events: ev.data || [], rides: ri.data || [], bookings: bo.data || [], vehicles: ve.data || [], requests: rq.data || [], athletes };
   }
 
   // Un genitore vede insieme le trasferte di tutte le sue squadre (S.multi);
@@ -637,6 +762,8 @@
     S.events = all.flatMap((d) => d.events).sort(byTime);
     S.rides = all.flatMap((d) => d.rides); S.bookings = all.flatMap((d) => d.bookings);
     S.vehicles = all.flatMap((d) => d.vehicles); S.requests = all.flatMap((d) => d.requests);
+    S.athletesOk = all.every((d) => d.athletes); S.athletes = all.flatMap((d) => d.athletes || []);
+    try { S.notices = (await sb.rpc("my_notices")).data || []; } catch (e) { S.notices = []; }
     try { S.sponsors = (await sb.rpc("get_sponsors", { p_team: id })).data || []; } catch (e) { S.sponsors = []; }
     return true;
   }
@@ -644,12 +771,12 @@
   // esegue fn come se fosse aperta la squadra tid (dati e permessi di quella squadra)
   function withTeam(tid, fn) {
     if (!S.multi || !S.teamsById || !S.teamsById[tid]) return fn();
-    const keep = { team: S.team, me: S.me, members: S.members, events: S.events, rides: S.rides, bookings: S.bookings, requests: S.requests, vehicles: S.vehicles };
+    const keep = { team: S.team, me: S.me, members: S.members, events: S.events, rides: S.rides, bookings: S.bookings, requests: S.requests, vehicles: S.vehicles, athletes: S.athletes };
     const only = (a) => a.filter((x) => x.team_id === tid);
     try {
       S.team = S.teamsById[tid]; S.me = S.mesById[tid];
       S.members = S.allMembers.filter((m) => m.team_id === tid);
-      S.events = only(keep.events); S.rides = only(keep.rides); S.bookings = only(keep.bookings); S.requests = only(keep.requests); S.vehicles = only(keep.vehicles);
+      S.events = only(keep.events); S.rides = only(keep.rides); S.bookings = only(keep.bookings); S.requests = only(keep.requests); S.vehicles = only(keep.vehicles); S.athletes = only(keep.athletes || []);
       return fn();
     } finally { Object.assign(S, keep); }
   }
@@ -706,9 +833,9 @@
   function teamTabs() {
     const adm = adminTeamIds();
     const tabs = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"]];
-    if (adm.length) tabs.push(["impostazioni", "Squadra"]);
+    if (adm.length) tabs.push(["impostazioni", "Squadra"], ["mezzi", "Mezzi"]);
     tabs.push(["risparmio", "Risparmio"]);
-    if (adm.length) tabs.push(["mezzi", "Mezzi"], ["report", "Report"]);
+    if (adm.length) tabs.push(["report", "Report"]);
     if (adm.some((tid) => premium(S.teamsById ? S.teamsById[tid] : S.team))) tabs.push(["sponsor", "Sponsor"]);
     return tabs;
   }
@@ -736,7 +863,7 @@
     const body = currentTab === "trasferte" || currentTab === "risparmio" ? fn() : teamSwitch() + withTeam(t.id, fn);
     const y = window.scrollY;
     const curSp = document.querySelector(".sp-banner")?.dataset.cur;
-    $app.innerHTML = head + `<div class="wrap">${waPanel()}${t.plan === "beta" && isAdmin() && currentTab === "trasferte" ? `<div class="notice small">Versione beta: tutte le funzioni Premium sono attive gratuitamente.</div>` : ""}${body}</div>` + footer();
+    $app.innerHTML = head + `<div class="wrap">${waPanel()}${body}</div>` + footer();
     window.scrollTo(0, y);
     if (currentTab === "invita") drawQR();
     if (curSp != null) { const nb = document.querySelector(".sp-banner"); if (nb) nb.dataset.cur = curSp; }
@@ -755,12 +882,21 @@
   }
 
   // ----- tab trasferte -----
+  // ragazzi della squadra aperta: { name, parents: [nomi], user_ids }
   function roster() {
+    if (S.athletesOk) return S.athletes.filter((a) => a.team_id === S.team.id).map((a) => ({ name: a.label, user_ids: a.parents, parents: a.parents.map((u) => member(u).name).filter(Boolean) })).sort((a, b) => a.name.localeCompare(b.name));
     const out = [];
-    S.members.filter((m) => m.status === "active").forEach((m) => splitNames(m.athletes).forEach((a) => out.push({ name: a, parent: m.name, user_id: m.user_id })));
+    S.members.filter((m) => m.status === "active").forEach((m) => splitNames(m.athletes).forEach((a) => out.push({ name: a, parents: [m.name], user_ids: [m.user_id] })));
     return out;
   }
-  const myAthletes = () => splitNames(S.me?.athletes);
+  const myAthletes = () => S.athletesOk ? S.athletes.filter((a) => a.team_id === S.team.id && a.parents.includes(S.user.id)).map((a) => a.label).sort() : splitNames(S.me?.athletes);
+  const kidsOf = (uid) => S.athletesOk ? S.athletes.filter((a) => a.team_id === S.team.id && a.parents.includes(uid)).map((a) => a.label).sort() : splitNames(member(uid).athletes);
+  // avvisi: un altro genitore si è collegato a un mio figlio
+  function noticeCards() {
+    return (S.notices || []).map((n) => `<div class="notice ok"><b>${esc(n.parent)} ora è anche genitore di ${esc(n.athlete)}</b>
+      <div class="small">${esc(n.team)} · da ora vede e gestisce le prenotazioni di ${esc(firstName(n.athlete))}.</div>
+      <div class="row"><button class="btn-link" data-act="notice-ok" data-id="${n.id}">Ok</button><button class="btn-link danger" data-act="notice-unlink" data-id="${n.id}">Non lo conosco, scollega</button></div></div>`).join("");
+  }
 
   function tabTrips() {
     const L = sportOf(S.team);
@@ -769,7 +905,7 @@
     const past = S.events.filter((e) => new Date(e.starts_at).getTime() < cut).reverse();
     const admin = isAdmin();
     return `
-      ${wizardTrips()}${firstSteps()}${parentTips()}
+      ${noticeCards()}${wizardTrips()}${firstSteps()}${parentTips()}
       ${adminTeamIds().length && wizStep() !== 2 ? `<div class="row noprint">
         ${S.ui.newEvent ? "" : `<button class="btn-primary" data-act="new-event">+ Aggiungi trasferta</button>`}
         ${adminTeamIds().some((tid) => premium(teamById(tid))) ? `<button class="btn-ghost" data-act="ai-open">Importa calendario con l'AI</button>` : ""}
@@ -1059,12 +1195,15 @@
       }).join("")}</ul></div>`;
   }
 
+  // scelta dei propri figli con le spunte, invece di scrivere il nome
+  const kidPicker = (names, title) => `<div class="full"><div class="label" style="margin-bottom:6px">${title}</div><div class="pill-group">${names.map((n) => `<label class="pill check-pill"><input type="checkbox" name="athlete" value="${esc(n)}" ${names.length === 1 ? "checked" : ""}> ${esc(n)}</label>`).join("")}</div></div>`;
   function reqForm(e) {
     const booked = new Set(S.bookings.filter((b) => b.event_id === e.id).map((b) => b.athlete_name.toLowerCase()));
     const asked = new Set(S.requests.filter((q) => q.event_id === e.id).map((q) => q.athlete_name.toLowerCase()));
     const names = myAthletes().filter((n) => !booked.has(n.toLowerCase()) && !asked.has(n.toLowerCase()));
+    if (S.athletesOk && myAthletes().length && !names.length) return `<div class="notice small" style="margin-top:12px">I tuoi figli hanno già un posto o una richiesta per questa trasferta. <button class="btn-link" data-act="cancel">Chiudi</button></div>`;
     return `<form class="form" data-form="req" data-id="${e.id}" style="border-top:1px solid var(--line);padding-top:12px">
-      <label>Atleta<input name="athlete" required maxlength="60" list="dlq-${e.id}" value="${esc(names.length === 1 ? names[0] : "")}" placeholder="Nome dell'atleta"><datalist id="dlq-${e.id}">${names.map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>
+      ${names.length ? kidPicker(names, "Per chi?") : `<label>Atleta<input name="athlete" required maxlength="60" placeholder="Nome e cognome"></label>`}
       <label>Serve per<select name="direction"><option value="ar">andata e ritorno</option><option value="andata">solo andata</option><option value="ritorno">solo ritorno</option></select></label>
       <label class="full">Da dove parte<input name="from" maxlength="120" placeholder="Es. Buccinasco"></label>
       <div class="actions"><button class="btn-primary" type="submit">Pubblica la richiesta</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
@@ -1102,9 +1241,12 @@
   function bookForm(r) {
     const conv = r.assignment === "convocation";
     const booked = new Set(S.bookings.filter((b) => b.event_id === r.event_id).map((b) => b.athlete_name.toLowerCase()));
-    const names = (conv || isAdmin() ? roster().map((a) => a.name) : myAthletes()).filter((n) => !booked.has(n.toLowerCase()));
+    const mine = myAthletes().filter((n) => !booked.has(n.toLowerCase()));
+    const all = roster().map((a) => a.name).filter((n) => !booked.has(n.toLowerCase()));
+    const pick = !conv && mine.length;
+    if (!conv && !isAdmin() && S.athletesOk && myAthletes().length && !mine.length) return `<div class="notice small">I tuoi figli hanno già un posto per questa trasferta. <button class="btn-link" data-act="cancel">Chiudi</button></div>`;
     return `<form class="form" data-form="book" data-id="${r.id}">
-      <label>Atleta<input name="athlete" required maxlength="60" list="dl-${r.id}" value="${esc(names.length === 1 && !conv ? names[0] : "")}" placeholder="Nome dell'atleta"><datalist id="dl-${r.id}">${names.map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>
+      ${pick ? kidPicker(mine, "Chi sale?") + (isAdmin() ? `<label class="full">Altro atleta della squadra (facoltativo)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Nome e cognome"><datalist id="dl-${r.id}">${all.filter((n) => !mine.includes(n)).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>` : "") : `<label>Atleta<input name="athlete" required maxlength="60" list="dl-${r.id}" placeholder="Nome e cognome"><datalist id="dl-${r.id}">${(conv || isAdmin() ? all : mine).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>`}
       <label>Dove sale<input name="pickup" maxlength="80" placeholder="Al punto di partenza"></label>
       <div class="actions"><button class="btn-primary" type="submit">${conv ? "Assegna posto" : "Conferma posto"}</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
     </form>`;
@@ -1147,22 +1289,25 @@
       ${admin && pend.length ? `<div class="card" style="background:var(--accent-soft)"><div class="label">Da approvare · ${pend.length}</div>
         ${pend.map((m) => `<div class="member"><div class="avatar">${esc(initials(m.name))}</div><div class="grow" style="flex:1;min-width:0"><b>${esc(m.name)}</b><div class="small muted">atleti: ${esc(m.athletes || "—")}</div></div>
           <button class="btn-ok" data-act="approve" data-id="${m.user_id}">Accetta</button><button class="btn-link danger" data-act="reject" data-id="${m.user_id}">Rifiuta</button></div>`).join("")}</div>` : ""}
-      <form class="card form" data-form="my-athletes">
+      ${S.athletesOk ? `<div class="card"><div class="between"><div><div class="label">I tuoi figli in questa squadra</div><div>${esc(myAthletes().join(", ") || "Nessuno indicato")}</div></div><a class="btn btn-ghost" href="#/profilo">Gestisci</a></div></div>`
+        : `<form class="card form" data-form="my-athletes">
         <label class="full">I miei atleti in questa squadra<input name="athletes" maxlength="200" value="${esc(S.me.athletes)}" placeholder="Più nomi separati da virgola"></label>
         <div class="actions"><button class="btn-primary" type="submit">Salva</button></div>
-      </form>
-      <div class="card"><div class="label">Membri · ${act.length}</div>
+      </form>`}
+      <div class="card"><div class="label">Famiglie · ${act.length}</div>
         ${act.map((m) => {
           const me = m.user_id === S.user.id;
           const c = S.ui.confirm === "member:" + m.user_id;
           return `<div class="member"><div class="avatar">${esc(initials(m.name))}</div>
-            <div style="flex:1;min-width:0"><b>${esc(m.name)}${me ? " (tu)" : ""}</b><div class="small muted">atleti: ${esc(m.athletes || "—")}</div>
+            <div style="flex:1;min-width:0"><b>${esc(m.name)}${me ? " (tu)" : ""}</b><div class="small muted">${kidsOf(m.user_id).length ? "genitore di " + esc(kidsOf(m.user_id).join(", ")) : "nessun figlio indicato"}</div>
               ${admin && !me ? `<div class="row">${c ? `<span class="confirm">Togliere dalla squadra? <button class="btn-link danger" data-act="remove-member" data-id="${m.user_id}">Sì</button><button class="btn-link" data-act="cancel">No</button></span>`
                 : `<button class="btn-link" data-act="toggle-admin" data-id="${m.user_id}">${m.role === "admin" ? "Togli amministratore" : "Rendi amministratore"}</button><button class="btn-link danger" data-act="ask-remove-member" data-id="${m.user_id}">Togli</button>`}</div>` : ""}
             </div>
             <span class="chip ${m.role === "admin" ? "navy" : ""}">${m.role === "admin" ? "Admin" : "Genitore"}</span></div>`;
         }).join("")}
       </div>
+      ${S.athletesOk && roster().length ? `<div class="card"><div class="label">Atleti · ${roster().length}</div>
+        ${roster().map((a) => `<div class="member"><div style="flex:1;min-width:0"><b>${esc(a.name)}</b><div class="small muted">${esc(a.parents.join(" · ") || "—")}</div></div></div>`).join("")}</div>` : ""}
       <div>${S.ui.confirm === "leave" ? `<span class="confirm">Vuoi davvero lasciare la squadra? <button class="btn-link danger" data-act="leave">Sì, esci</button><button class="btn-link" data-act="cancel">No</button></span>` : `<button class="btn-link danger" data-act="ask-leave">Lascia la squadra</button>`}</div>`;
   }
 
@@ -1313,6 +1458,10 @@
       "landing-login": () => { store("it-next", null); S.ui.landing = "email"; viewLogin(); },
       "landing-back": () => { store("it-next", null); S.ui.landing = "welcome"; S.ui.inviteName = null; viewLogin(); },
       "code-open": () => { S.ui.codeOpen = true; viewHome(); },
+      "kid-more": () => { const box = b.closest(".kids"); const rows = box.querySelectorAll(".kid-row"); const last = rows[0]?.querySelector('input[name^="kl"]')?.value || ""; b.parentElement.insertAdjacentHTML("beforebegin", kidRow("", last, false)); box.querySelectorAll(".kid-row")[rows.length].querySelector("input").focus(); },
+      "kid-new": () => { S.ui.kidEdit = "new"; viewProfile(); },
+      "kid-edit": () => { S.ui.kidEdit = id; viewProfile(); },
+      "kid-cancel": () => { S.ui.kidEdit = null; viewProfile(); },
       "code-close": () => { S.ui.codeOpen = false; viewHome(); },
       "pick-sport": () => { const f = b.closest("form"); const keep = f ? Object.fromEntries(new FormData(f)) : {}; S.ui.newSport = b.dataset.v; viewNewTeam(); const nf = document.querySelector('[data-form="new-team"]'); for (const k in keep) if (nf.elements[k]) nf.elements[k].value = keep[k]; },
       "edit-sport": () => { S.ui.editSport = b.dataset.v; document.querySelectorAll('[data-act="edit-sport"]').forEach((x) => x.setAttribute("aria-checked", String(x === b))); },
@@ -1356,6 +1505,13 @@
         await sb.auth.signOut(); S.profile = null; location.hash = "#/"; toast("Account eliminato. Grazie per aver usato Carpoolino."); return;
       }
       if (act === "logout") { S.ui.confirmLogout = false; await sb.auth.signOut(); S.profile = null; location.hash = "#/"; return; }
+      if (act === "notice-ok" || act === "notice-unlink") {
+        const n = (S.notices || []).find((x) => String(x.id) === String(id));
+        const { error } = act === "notice-ok" ? await sb.rpc("notice_seen", { p_id: Number(id) }) : await sb.rpc("unlink_parent", { p_athlete: n.athlete_id, p_user: n.new_parent });
+        if (error) throw error;
+        if (act === "notice-unlink") toast("Collegamento tolto");
+        await reloadTeam(); return;
+      }
       S.ui.wa = null;
       if (act === "unbook") {
         const bk = S.bookings.find((x) => x.id === id), r = bk && S.rides.find((x) => x.id === bk.ride_id), e = r && S.events.find((x) => x.id === r.event_id);
@@ -1438,11 +1594,42 @@
       }
       if (kind === "profile-name") {
         if (!telOk(v("phone"))) { toast("Scrivi un numero di cellulare valido"); if (btn) btn.disabled = false; return; }
-        const upd = { display_name: v("name") }; if (fd.has("phone")) upd.phone = v("phone");
+        const upd = { first_name: v("first"), last_name: v("last"), display_name: fullName(v("first"), v("last")) }; if (fd.has("phone")) upd.phone = v("phone");
+        if (S.myKids === null) { delete upd.first_name; delete upd.last_name; } // database non ancora aggiornato
         const { error } = await sb.from("profiles").update(upd).eq("id", S.user.id); if (error) throw error;
         Object.assign(S.profile, upd); toast("Salvato");
         if ((location.hash || "#/").startsWith("#/profilo")) location.hash = "#/"; else route();
         return;
+      }
+      if (kind === "fill-names") {
+        if (fd.has("first")) {
+          const upd = { first_name: v("first"), last_name: v("last"), display_name: fullName(v("first"), v("last")) };
+          const { error } = await sb.from("profiles").update(upd).eq("id", S.user.id); if (error) throw error; Object.assign(S.profile, upd);
+        }
+        for (const [k, val] of fd.entries()) {
+          if (!k.startsWith("kidf-")) continue;
+          const ids = k.slice(5).split(","), last = String(fd.get("kidl-" + k.slice(5)) || "").trim();
+          for (const aid of ids) { const { error } = await sb.rpc("update_athlete", { p_id: aid, p_first: String(val).trim(), p_last: last }); if (error) throw error; }
+        }
+        await loadMyKids(); toast("Grazie!"); route(); return;
+      }
+      if (kind === "kid") {
+        const first = v("first"), last = v("last"), want = fd.getAll("team");
+        const gr = f.dataset.key ? kidGroups().find((g) => g.key === f.dataset.key) : null;
+        if (!gr && !want.length) { toast("Scegli almeno una squadra"); if (btn) btn.disabled = false; return; }
+        if (gr) {
+          for (const r of gr.recs) {
+            if (!want.includes(r.team_id)) { const { error } = await sb.rpc("remove_my_athlete", { p_id: r.id }); if (error) throw error; }
+            else if (r.first_name !== first || r.last_name !== last) { const { error } = await sb.rpc("update_athlete", { p_id: r.id, p_first: first, p_last: last }); if (error) throw error; }
+          }
+        }
+        for (const tid of want) {
+          if (gr && gr.recs.some((r) => r.team_id === tid)) continue;
+          const kid = { first, last };
+          const link = await resolveKid(kid, { team: tid });
+          await addKids(tid, [kid], [link]);
+        }
+        S.ui.kidEdit = null; toast(gr && !want.length ? "Tolto" : "Salvato"); await loadKidsCtx(); viewProfile(); return;
       }
       if (kind === "consents") {
         if (!fd.get("terms") || !fd.get("parent")) { toast("Per continuare servono le due spunte obbligatorie"); if (btn) btn.disabled = false; return; }
@@ -1461,13 +1648,16 @@
       if (kind === "join-multi") {
         const picks = fd.getAll("pick");
         if (!picks.length) { toast("Spunta almeno una squadra"); if (btn) btn.disabled = false; return; }
-        const miss = picks.find((c) => !String(fd.get("ath-" + c) || "").trim());
-        if (miss) { toast("Scrivi il nome dell'atleta per ogni squadra spuntata"); f.elements["ath-" + miss]?.focus(); if (btn) btn.disabled = false; return; }
+        const miss = picks.find((c) => { const k = readKids(fd, "-" + c); return !k.length || kidsMissingSurname(k); });
+        if (miss) { toast("Scrivi nome e cognome di tuo figlio per ogni squadra spuntata"); f.elements["kf-" + miss]?.focus(); if (btn) btn.disabled = false; return; }
         let ok = 0, wait = 0, last = null;
         for (const c of picks) {
-          const { data, error } = await sb.rpc("join_team", { p_code: c, p_athletes: String(fd.get("ath-" + c)).trim() });
+          const kids = readKids(fd, "-" + c), links = [];
+          for (const k of kids) links.push(await resolveKid(k, { code: c }));
+          const { data, error } = await sb.rpc("join_team", { p_code: c, p_athletes: "" });
           if (error) { toast(errMsg(error)); continue; }
           const r = data && data[0]; if (!r) continue;
+          try { await addKids(r.team_id, kids, links); } catch (e) { toast(errMsg(e)); }
           if (r.status === "pending") wait++; else { ok++; last = r.team_id; }
         }
         toast(ok && wait ? `Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}; ${wait} in attesa di approvazione` : ok ? `Benvenuto! Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}` : wait ? "Richiesta inviata: attendi l'approvazione" : "Nessuna squadra aggiunta");
@@ -1475,15 +1665,22 @@
         location.hash = "#/"; return;
       }
       if (kind === "join") {
-        const { data, error } = await sb.rpc("join_team", { p_code: f.dataset.code, p_athletes: v("athletes") }); if (error) throw error;
+        const kids = readKids(fd);
+        if (!kids.length || kidsMissingSurname(kids)) { toast("Scrivi nome e cognome di tuo figlio"); if (btn) btn.disabled = false; return; }
+        const links = []; for (const k of kids) links.push(await resolveKid(k, { code: f.dataset.code }));
+        const { data, error } = await sb.rpc("join_team", { p_code: f.dataset.code, p_athletes: "" }); if (error) throw error;
         const r = data && data[0];
+        await addKids(r.team_id, kids, links); await loadMyKids();
         if (r && r.status === "pending") { toast("Richiesta inviata: attendi l'approvazione"); location.hash = "#/"; }
         else { toast("Benvenuto in squadra!"); location.hash = "#/t/" + r.team_id + "/trasferte"; }
         return;
       }
       if (kind === "new-team") {
-        const { data, error } = await sb.rpc("create_team", { p_name: v("name"), p_sport: S.ui.newSport || "basket", p_category: v("category"), p_season: v("season"), p_athletes: v("athletes") });
+        const kids = readKids(fd);
+        if (kidsMissingSurname(kids)) { toast("Scrivi anche il cognome di tuo figlio"); if (btn) btn.disabled = false; return; }
+        const { data, error } = await sb.rpc("create_team", { p_name: v("name"), p_sport: S.ui.newSport || "basket", p_category: v("category"), p_season: v("season"), p_athletes: "" });
         if (error) throw error;
+        try { await addKids(data.id, kids, []); await loadMyKids(); } catch (e) { toast(errMsg(e)); }
         S.ui.newSport = null; try { await saveConsent("club", true, data.id); } catch (e) { /* registro facoltativo */ } store("it-wizard-" + data.id, "2"); store("it-last-team", data.id); toast("Squadra creata"); location.hash = "#/t/" + data.id + "/trasferte"; return;
       }
       if (kind === "event") {
@@ -1504,9 +1701,13 @@
         if (nr && ev && ev.place && v("from")) estimateKm(v("from"), ev.place).then(async (km) => { if (km != null) { await sb.rpc("set_ride_km", { p_ride: nr.id, p_km: km }); if (S.team && !anyFormOpen()) reloadTeam(); } });
       }
       if (kind === "req") {
-        const { error } = await sb.from("ride_requests").insert({ event_id: f.dataset.id, team_id: evTeam(f.dataset.id), athlete_name: v("athlete"), depart_from: v("from"), direction: v("direction") || "ar", requested_by: S.user.id });
-        if (error) { if (/duplicate|unique/i.test(error.message || "")) { toast("Per questo atleta c'è già una richiesta"); if (btn) btn.disabled = false; return; } throw error; }
-        toast("Richiesta pubblicata");
+        const who = fd.getAll("athlete").map((x) => String(x).trim()).filter(Boolean);
+        if (!who.length) { toast("Scegli per chi chiedi il passaggio"); if (btn) btn.disabled = false; return; }
+        for (const a of who) {
+          const { error } = await sb.from("ride_requests").insert({ event_id: f.dataset.id, team_id: evTeam(f.dataset.id), athlete_name: a, depart_from: v("from"), direction: v("direction") || "ar", requested_by: S.user.id });
+          if (error) { if (/duplicate|unique/i.test(error.message || "")) { toast("Per " + a + " c'è già una richiesta"); if (btn) btn.disabled = false; return; } throw error; }
+        }
+        toast(who.length > 1 ? "Richieste pubblicate" : "Richiesta pubblicata");
       }
       if (kind === "club") {
         const { error } = await sb.from("rides").insert({ event_id: f.dataset.id, team_id: evTeam(f.dataset.id), kind: "club", vehicle_id: v("vehicle"), driver_name: v("driver"), seats: Number(v("seats")), depart_time: v("time"), depart_from: v("from"), return_trip: fd.get("back") === "on", assignment: v("assignment"), created_by: S.user.id });
@@ -1514,10 +1715,15 @@
       }
       if (kind === "book") {
         S.ui.wa = null;
-        const { error } = await sb.rpc("book_seat", { p_ride: f.dataset.id, p_athlete: v("athlete"), p_pickup: v("pickup") });
-        if (error) throw error; toast("Posto confermato");
+        const who = fd.getAll("athlete").map((x) => String(x).trim()).filter(Boolean);
+        if (!who.length) { toast("Scegli chi sale"); if (btn) btn.disabled = false; return; }
+        const done = [];
+        try { for (const a of who) { const { error } = await sb.rpc("book_seat", { p_ride: f.dataset.id, p_athlete: a, p_pickup: v("pickup") }); if (error) throw error; done.push(a); } }
+        catch (err) { if (!done.length) throw err; toast(errMsg(err)); }
+        if (done.length === who.length) toast(done.length > 1 ? "Posti confermati" : "Posto confermato");
         const r = S.rides.find((x) => x.id === f.dataset.id), e = r && S.events.find((x) => x.id === r.event_id);
-        if (r && e && r.kind === "parent" && r.created_by !== S.user.id) { const L = tripLabel(e); S.ui.wa = [{ to: firstName(r.driver_name), phone: driverPhone(r), text: `Ciao ${firstName(r.driver_name)}, ho prenotato un posto per ${v("athlete")} nella tua auto per ${L.trip} (${L.d}).${v("pickup") ? " Sale a " + v("pickup") + "." : ""} Grazie!` }]; }
+        const names = done.join(" e ");
+        if (r && e && r.kind === "parent" && r.created_by !== S.user.id) { const L = tripLabel(e); S.ui.wa = [{ to: firstName(r.driver_name), phone: driverPhone(r), text: `Ciao ${firstName(r.driver_name)}, ho prenotato ${done.length > 1 ? done.length + " posti per" : "un posto per"} ${names} nella tua auto per ${L.trip} (${L.d}).${v("pickup") ? " Sale" + (done.length > 1 ? "no" : "") + " a " + v("pickup") + "." : ""} Grazie!` }]; }
       }
       if (kind === "sponsor") {
         const scope = f.dataset.scope, file = fd.get("logo");
