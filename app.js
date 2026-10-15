@@ -291,7 +291,6 @@
     const hero = (big) => `<div class="hero"><div class="in">
         <h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg" alt="Carpoolino" class="wordmark"></h1>
         <p style="font-size:1.2rem;margin:0">Le trasferte della squadra, organizzate in un minuto.</p>
-        ${big ? `<p class="hero-sub">I genitori offrono i posti in auto, gli altri prenotano: niente più giri di messaggi la sera prima.</p>` : ""}
       </div></div>`;
     const privacy = `<p class="small muted" style="text-align:center"><a href="#/termini">Termini d'uso</a> · <a href="#/privacy">Informativa privacy</a> · Nessuna pubblicità profilata, nessun dato ceduto a terzi.</p>`;
     let body = "";
@@ -318,6 +317,9 @@
           ${pwField("password", "Password", "current-password")}
           <div class="full" style="text-align:right;margin-top:-4px"><button type="button" class="btn-link" data-act="pw-forgot">Password dimenticata?</button></div>
           <div class="actions"><button class="btn-primary btn-block" type="submit">Entra</button></div>
+          ${S.ui.loginFailed ? `<div class="full notice" style="margin:0"><b>Non hai ancora una password o non la ricordi?</b>
+            <div class="small">Ti mandiamo un codice a <b>${esc(S.ui.lastEmail || "")}</b>: lo inserisci e scegli la password.</div>
+            <div style="margin-top:8px"><button type="button" class="btn-primary" data-act="pw-send-code">Mandami un codice</button></div></div>` : ""}
           <p class="full small muted" style="margin:0;text-align:center">oppure <button type="button" class="btn-link" data-act="otp-login">accedi con un codice via email</button></p>
         </form>
         <p style="text-align:center;margin:0"><button class="btn-link" data-act="landing-back">← Indietro</button></p>`;
@@ -1524,6 +1526,13 @@
       "login-restart": () => { S.ui.loginEmail = null; viewLogin(); },
       "pw-show": () => { const i = b.parentElement.querySelector("input"); const show = i.type === "password"; i.type = show ? "text" : "password"; b.textContent = show ? "Nascondi" : "Mostra"; },
       "pw-forgot": () => { S.ui.lastEmail = document.querySelector('[data-form="login-pw"] input[name=email]')?.value || S.ui.lastEmail; S.ui.otpPurpose = "reset"; S.ui.landing = "email"; viewLogin(); },
+      "pw-send-code": async () => {
+        const email = S.ui.lastEmail; if (!email) return;
+        b.disabled = true;
+        const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: false } });
+        if (error) { b.disabled = false; return toast(errMsg(error)); }
+        store("it-forcepw", "1"); S.ui.otpPurpose = "reset"; S.ui.loginFailed = false; S.ui.loginEmail = email; viewLogin();
+      },
       "otp-login": () => { S.ui.lastEmail = document.querySelector('[data-form="login-pw"] input[name=email]')?.value || S.ui.lastEmail; S.ui.otpPurpose = "login"; S.ui.landing = "email"; viewLogin(); },
       "wiz-next": () => { store("it-wizard-" + S.team.id, "3"); location.hash = "#/t/" + S.team.id + "/invita"; },
       "wiz-done": () => { store("it-wizard-" + S.team.id, null); location.hash = "#/t/" + S.team.id + "/trasferte"; toast("Tutto pronto!"); },
@@ -1536,7 +1545,7 @@
       "del-cancel": () => { S.ui.confirmDelete = false; viewProfile(); },
       "landing-create": () => { store("it-next", "#/new"); S.ui.landing = "email"; viewLogin(); },
       "landing-join": () => { store("it-next", null); S.ui.landing = "code"; viewLogin(); },
-      "landing-login": () => { S.ui.otpPurpose = null; S.ui.landing = "login"; viewLogin(); },
+      "landing-login": () => { S.ui.otpPurpose = null; S.ui.loginFailed = false; S.ui.landing = "login"; viewLogin(); },
       "landing-back": () => { if (S.ui.otpPurpose) { S.ui.otpPurpose = null; S.ui.landing = "login"; return viewLogin(); } store("it-next", null); S.ui.landing = "welcome"; S.ui.inviteName = null; viewLogin(); },
       "code-open": () => { S.ui.codeOpen = true; viewHome(); },
       "kid-more": () => { const box = b.closest(".kids"); const rows = box.querySelectorAll(".kid-row"); const last = rows[0]?.querySelector('input[name^="kl"]')?.value || ""; b.parentElement.insertAdjacentHTML("beforebegin", kidRow("", last, false)); box.querySelectorAll(".kid-row")[rows.length].querySelector("input").focus(); },
@@ -1673,7 +1682,8 @@
       if (kind === "login-pw") {
         S.ui.lastEmail = v("email");
         const { error } = await sb.auth.signInWithPassword({ email: v("email"), password: String(fd.get("password") || "") });
-        if (error) throw error;
+        if (error) { S.ui.loginFailed = true; viewLogin(); toast(/Invalid login/i.test(error.message || "") ? "Email o password non corretti." : errMsg(error)); return; }
+        S.ui.loginFailed = false;
         store("it-forcepw", null); S.ui.landing = null; return; // il cambio di sessione apre l'app
       }
       if (kind === "login-email") {
