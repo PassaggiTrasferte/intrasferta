@@ -257,3 +257,14 @@ video.sp-thumb,img.sp-thumb{width:66px;height:22px;object-fit:cover}
 .check .btn-link{display:inline;padding:0;min-height:0;vertical-align:baseline;font-weight:600;font-size:inherit}
 .modal .check{align-items:flex-start;line-height:1.4}
 .modal .check input[type=checkbox]:not(.switch input){margin-top:2px}
+/* riga della versione in fondo a ogni pagina */
+.ver{text-align:center;font-size:.75rem;color:var(--muted);padding:4px 16px calc(16px + env(safe-area-inset-bottom))}
+/* pagina di benvenuto: testo centrato, punti chiave senza riquadri */
+.hero .in{text-align:center;justify-items:center}
+.hero .hero-logo{justify-content:center}
+.hero .hero-sub{margin-left:auto;margin-right:auto}
+.feat{gap:4px;padding:2px 0 6px}
+.feat div{background:none;border:0;border-radius:0;padding:6px 4px;gap:4px;font-size:.88rem}
+.feat div b{font-weight:600}
+.feat span{font-size:1.7rem;line-height:1}
+.feat div{align-content:start}

@@ -336,7 +336,9 @@
   }
   // versione letta dall'indirizzo di app.js in index.html (es. app.js?v=20261015-3)
   const APP_VERSION = ((document.querySelector('script[src*="app.js"]') || {}).src || "").split("v=")[1] || "";
-  const footer = () => `<footer class="foot">Carpoolino beta${APP_VERSION ? " · versione " + esc(APP_VERSION) : ""} · solo coordinamento tra famiglie, nessun pagamento · <a href="#/termini">Termini</a> · <a href="#/privacy">Privacy</a> · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
+  // riga della versione, fissa in fondo a tutte le pagine (fuori dall'area che si ridisegna)
+  { const ver = document.getElementById("ver"); if (ver) ver.textContent = "Carpoolino" + (APP_VERSION ? " · versione " + APP_VERSION : ""); }
+  const footer = () => `<footer class="foot">Carpoolino beta · solo coordinamento tra famiglie, nessun pagamento · <a href="#/termini">Termini</a> · <a href="#/privacy">Privacy</a> · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
 
   // ---------- home: le mie squadre ----------
   async function viewHome(stay) {
