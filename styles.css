@@ -81,6 +81,7 @@ textarea{min-height:96px;resize:vertical}
 .trip{background:var(--surface);border:1px solid var(--line);border-radius:14px;display:grid;grid-template-columns:72px 1fr;overflow:hidden}
 .trip.past{opacity:.8}
 .stub{background:var(--navy);color:var(--navy-ink);display:grid;align-content:start;justify-items:center;padding:14px 4px;text-align:center;gap:2px;border-right:2px dashed var(--bg)}
+.stub .cat{margin-bottom:6px;max-width:100%;padding:2px 6px;border-radius:6px;background:var(--brand);color:#0B1018;font-family:var(--display);font-size:.95rem;font-weight:700;letter-spacing:.03em;line-height:1.1;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stub .dow{font-size:.72rem;letter-spacing:.1em;font-weight:700;text-transform:uppercase;opacity:.85}
 .stub .day{font-family:var(--display);font-size:2.2rem;line-height:1;font-weight:700}
 .stub .mon{font-family:var(--display);font-size:1rem;text-transform:uppercase;letter-spacing:.06em}
@@ -183,6 +184,9 @@ footer.foot{text-align:center;color:var(--muted);font-size:.82rem;padding:8px 16
 .brand .wordmark{height:28px}
 .brand img:first-child{border-radius:9px}
 .top .titlerow{min-height:0;padding-top:0;padding-bottom:10px}
+/* logo e scritta centrati nella barra in alto */
+.top .in:first-child{position:relative}
+.top .in:first-child .brand{position:absolute;left:50%;top:calc(50% - 5px);transform:translate(-50%,-50%)}
 .form .check-pill{display:inline-flex;flex-direction:row;align-items:center;gap:6px;font-weight:600}
 
 /* banner sponsor a rotazione: riquadro orizzontale 3:1 con immagine o video */

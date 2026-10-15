@@ -367,15 +367,13 @@
   // ---------- squadra ----------
   function unsubscribe() { if (S.channel) { sb.removeChannel(S.channel); S.channel = null; } S.loadedTeam = null; }
 
-  async function loadTeam(id) {
-    const uid = S.user.id;
+  async function fetchTeamData(id, uid) {
     const [t, me] = await Promise.all([
       sb.from("teams").select("*").eq("id", id).maybeSingle(),
       sb.from("team_members").select("*").eq("team_id", id).eq("user_id", uid).maybeSingle()
     ]);
     if (t.error) throw t.error;
-    S.team = t.data; S.me = me.data;
-    if (!S.team) return false;
+    if (!t.data) return null;
     const [mem, ev, ri, bo, ve, rq] = await Promise.all([
       sb.from("team_members").select("*").eq("team_id", id),
       sb.from("events").select("*").eq("team_id", id).order("starts_at"),
@@ -384,28 +382,65 @@
       sb.from("vehicles").select("*").eq("team_id", id).order("created_at"),
       sb.from("ride_requests").select("*").eq("team_id", id).order("created_at")
     ]);
-    const memberIds = (mem.data || []).map((m) => m.user_id);
+    return { team: t.data, me: me.data, members: (mem.data || []).map((m) => ({ ...m, team_id: m.team_id || id })), events: ev.data || [], rides: ri.data || [], bookings: bo.data || [], vehicles: ve.data || [], requests: rq.data || [] };
+  }
+
+  // Un genitore vede insieme le trasferte di tutte le sue squadre (S.multi);
+  // ogni trasferta resta gestita con le regole della propria squadra (withTeam).
+  async function loadTeam(id) {
+    const uid = S.user.id;
+    const main = await fetchTeamData(id, uid);
+    if (!main) { S.team = null; S.me = null; return false; }
+    S.team = main.team; S.me = main.me;
+    let all = [main];
+    if (S.me) {
+      const { data: mine } = await sb.from("team_members").select("team_id,status").eq("user_id", uid).eq("status", "active");
+      const others = (mine || []).map((m) => m.team_id).filter((t) => t !== id);
+      if (others.length) all = all.concat((await Promise.all(others.map((t) => fetchTeamData(t, uid).catch(() => null)))).filter(Boolean));
+    }
+    S.multi = all.length > 1;
+    S.teamsById = {}; S.mesById = {};
+    all.forEach((d) => { S.teamsById[d.team.id] = d.team; S.mesById[d.team.id] = d.me; });
+    S.teamOrder = all.map((d) => d.team.id);
+    const allMem = all.flatMap((d) => d.members);
+    const memberIds = [...new Set(allMem.map((m) => m.user_id))];
     const prof = memberIds.length ? (await sb.from("profiles").select("id,display_name,phone").in("id", memberIds)).data || [] : [];
-    S.members = (mem.data || []).map((m) => { const pr = prof.find((p) => p.id === m.user_id) || {}; return { ...m, name: pr.display_name || "Genitore", phone: pr.phone || "" }; });
-    S.events = ev.data || []; S.rides = ri.data || []; S.bookings = bo.data || []; S.vehicles = ve.data || []; S.requests = rq.data || [];
+    S.allMembers = allMem.map((m) => { const pr = prof.find((p) => p.id === m.user_id) || {}; return { ...m, name: pr.display_name || "Genitore", phone: pr.phone || "" }; });
+    S.members = S.allMembers.filter((m) => m.team_id === id);
+    const byTime = (a, b) => new Date(a.starts_at) - new Date(b.starts_at);
+    S.events = all.flatMap((d) => d.events).sort(byTime);
+    S.rides = all.flatMap((d) => d.rides); S.bookings = all.flatMap((d) => d.bookings);
+    S.vehicles = all.flatMap((d) => d.vehicles); S.requests = all.flatMap((d) => d.requests);
     try { S.sponsors = (await sb.rpc("get_sponsors", { p_team: id })).data || []; } catch (e) { S.sponsors = []; }
     return true;
   }
+
+  // esegue fn come se fosse aperta la squadra tid (dati e permessi di quella squadra)
+  function withTeam(tid, fn) {
+    if (!S.multi || !S.teamsById || !S.teamsById[tid]) return fn();
+    const keep = { team: S.team, me: S.me, members: S.members, events: S.events, rides: S.rides, bookings: S.bookings, requests: S.requests, vehicles: S.vehicles };
+    const only = (a) => a.filter((x) => x.team_id === tid);
+    try {
+      S.team = S.teamsById[tid]; S.me = S.mesById[tid];
+      S.members = S.allMembers.filter((m) => m.team_id === tid);
+      S.events = only(keep.events); S.rides = only(keep.rides); S.bookings = only(keep.bookings); S.requests = only(keep.requests); S.vehicles = only(keep.vehicles);
+      return fn();
+    } finally { Object.assign(S, keep); }
+  }
+  const evTeam = (eid) => (S.events.find((x) => x.id === eid) || {}).team_id || S.team.id;
 
   function subscribe(id) {
     if (S.loadedTeam === id && S.channel) return;
     unsubscribe(); S.loadedTeam = id;
     let t;
     const refresh = () => { clearTimeout(t); t = setTimeout(async () => { if (S.loadedTeam !== id) return; if (anyFormOpen()) return; await loadTeam(id); renderTeam(); }, 400); };
-    S.channel = sb.channel("team-" + id)
-      .on("postgres_changes", { event: "*", schema: "public", table: "rides", filter: "team_id=eq." + id }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "bookings", filter: "team_id=eq." + id }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: "team_id=eq." + id }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "ride_requests", filter: "team_id=eq." + id }, refresh)
-      .subscribe();
+    let ch = sb.channel("team-" + id);
+    const ids = S.multi && S.teamOrder ? S.teamOrder : [id];
+    ids.forEach((tid) => ["rides", "bookings", "events", "ride_requests"].forEach((tb) => { ch = ch.on("postgres_changes", { event: "*", schema: "public", table: tb, filter: "team_id=eq." + tid }, refresh); }));
+    S.channel = ch.subscribe();
   }
   const anyFormOpen = () => !!(S.ui.offer || S.ui.book || S.ui.club || S.ui.editEvent || S.ui.newEvent || S.ui.req);
-  const member = (uid) => S.members.find((m) => m.user_id === uid) || {};
+  const member = (uid) => S.members.find((m) => m.user_id === uid) || (S.allMembers || []).find((m) => m.user_id === uid) || {};
   const canAddEvents = () => isAdmin();
   const canEditEvent = () => isAdmin();
   const tripLabel = (e) => { const p = dateParts(e.starts_at); return { trip: e.title, d: `${p.dow} ${p.day} ${p.mon}` }; };
@@ -428,7 +463,7 @@
   }
 
   function teamTabs() {
-    const tabs = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"]];
+    const tabs = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"], ["risparmio", "Risparmio"]];
     if (isAdmin()) tabs.push(["mezzi", "Mezzi"], ["report", "Report"]);
     if (isAdmin() && premium()) tabs.push(["sponsor", "Sponsor"]);
     if (isAdmin()) tabs.push(["impostazioni", "Squadra"]);
@@ -439,8 +474,13 @@
     const t = S.team;
     const tabs = teamTabs();
     if (!tabs.some(([k]) => k === currentTab)) currentTab = "trasferte";
-    const head = topBar({ title: t.name, sub: `${sportOf(t).label}${t.category ? " · " + t.category : ""} · ${t.season}`, back: "#/", tabs, active: currentTab, teamId: t.id });
-    const body = { trasferte: tabTrips, membri: tabMembers, invita: tabInvite, mezzi: tabVehicles, report: tabReport, sponsor: tabSponsors, impostazioni: tabSettings }[currentTab]();
+    const sub = S.multi && (currentTab === "trasferte" || currentTab === "risparmio")
+      ? `Le tue squadre: ${S.teamOrder.map((x) => S.teamsById[x].category || S.teamsById[x].name).join(" · ")}`
+      : `${sportOf(t).label}${t.category ? " · " + t.category : ""} · ${t.season}`;
+    const head = topBar({ title: t.name, sub, back: "#/", tabs, active: currentTab, teamId: t.id });
+    const fn = { trasferte: tabTrips, membri: tabMembers, invita: tabInvite, risparmio: tabSavings, mezzi: tabVehicles, report: tabReport, sponsor: tabSponsors, impostazioni: tabSettings }[currentTab];
+    // trasferte e risparmio mostrano tutte le squadre; le altre sezioni solo la squadra aperta
+    const body = currentTab === "trasferte" || currentTab === "risparmio" ? fn() : withTeam(t.id, fn);
     const y = window.scrollY;
     const curSp = document.querySelector(".sp-banner")?.dataset.cur;
     $app.innerHTML = head + `<div class="wrap">${waPanel()}${t.plan === "beta" && isAdmin() && currentTab === "trasferte" ? `<div class="notice small">Versione beta: tutte le funzioni Premium sono attive gratuitamente.</div>` : ""}${body}</div>` + footer();
@@ -481,11 +521,16 @@
         ${admin && premium() ? `<button class="btn-ghost" data-act="ai-open">Importa calendario con l'AI</button>` : ""}
       </div>` : ""}
       ${sponsorBanner()}
-      ${savingsCard()}
       ${S.ui.newEvent ? eventForm(null, L) : ""}
       ${S.ui.ai ? aiPanel() : ""}
-      ${up.length ? up.map((e) => tripCard(e, false)).join("") : `<div class="empty"><strong>Nessuna trasferta in programma</strong>${admin ? "Aggiungi la prossima trasferta o importa il calendario." : "Quando l'amministratore aggiunge una trasferta, comparirà qui."}</div>`}
-      ${past.length ? `<button class="btn-link" data-act="toggle-past">${S.showPast ? "Nascondi" : "Mostra"} trasferte passate (${past.length})</button>${S.showPast ? past.map((e) => tripCard(e, true)).join("") : ""}` : ""}`;
+      ${up.length ? up.map((e) => withTeam(e.team_id, () => tripCard(e, false))).join("") : `<div class="empty"><strong>Nessuna trasferta in programma</strong>${admin ? "Aggiungi la prossima trasferta o importa il calendario." : "Quando l'amministratore aggiunge una trasferta, comparirà qui."}</div>`}
+      ${past.length ? `<button class="btn-link" data-act="toggle-past">${S.showPast ? "Nascondi" : "Mostra"} trasferte passate (${past.length})</button>${S.showPast ? past.map((e) => withTeam(e.team_id, () => tripCard(e, true))).join("") : ""}` : ""}`;
+  }
+
+  // ----- tab risparmio: una scheda per ogni squadra -----
+  function tabSavings() {
+    const ids = S.multi && S.teamOrder ? S.teamOrder : [S.team.id];
+    return ids.map((tid) => withTeam(tid, () => savingsCard(S.multi ? S.team.name : ""))).join("");
   }
 
   // ----- risparmio (visibile a tutti) -----
@@ -502,11 +547,11 @@
     });
     return { cost, co2k, fam: { km: famKm, eur: famKm * cost, co2: famKm * co2k, trips: famTrips, given }, team: { avoided: tot.avoided, km: tot.km, eur: tot.km * cost, co2: tot.co2 } };
   }
-  function savingsCard() {
+  function savingsCard(teamName) {
     const v = computeSavings();
     const empty = !v.team.km && !v.fam.km && !v.fam.given;
     return `<div class="card savings">
-      <div class="label">🌱 Il risparmio di questa stagione</div>
+      <div class="label">🌱 Il risparmio di questa stagione${teamName ? " · " + esc(teamName) : ""}</div>
       ${empty ? `<div class="small muted">Il conteggio parte dalle prime trasferte concluse con i km indicati: qui vedrai km, euro e CO₂ risparmiati dalla tua famiglia e dalla squadra.</div>` : `
       <div class="small"><b>La tua famiglia</b>${v.fam.given ? ` · hai accompagnato ${v.fam.given} ${v.fam.given === 1 ? "atleta" : "atleti"} di altre famiglie` : ""}</div>
       <div class="stats"><div><b>${fmt(v.fam.km)}</b>km non guidati</div><div><b>${fmt(v.fam.eur)} €</b>risparmiati</div><div><b>${fmt(v.fam.co2)} kg</b>CO₂ evitata</div></div>
@@ -648,7 +693,7 @@
     const reqs = S.requests.filter((q) => q.event_id === e.id);
     const confirming = S.ui.confirm === "event:" + e.id;
     return `<article class="trip ${isPast ? "past" : ""}">
-      <div class="stub"><span class="dow">${p.dow}</span><span class="day">${p.day}</span><span class="mon">${p.mon}</span><span class="time">${p.time}</span></div>
+      <div class="stub">${S.multi ? `<span class="cat" title="${esc(S.team.name)}">${esc(S.team.category || S.team.name)}</span>` : ""}<span class="dow">${p.dow}</span><span class="day">${p.day}</span><span class="mon">${p.mon}</span><span class="time">${p.time}</span></div>
       <div class="tbody">
         <div class="between" style="align-items:start">
           <div style="min-width:0"><h2>${esc(e.title)}</h2>
@@ -964,7 +1009,7 @@
       "ai-close": () => { S.ui.ai = false; S.aiPreview = null; renderTeam(); },
       "ai-reset": () => { S.aiPreview = null; renderTeam(); },
       "print": () => window.print(),
-      "csv": () => exportCSV(),
+      "csv": () => withTeam(S.team.id, exportCSV),
       "copy-link": () => copy(inviteUrl()),
       "copy-text": () => copy(inviteText()),
       "admin-filter": () => { S.ui.adminFilter = b.dataset.v; renderAdmin(); },
@@ -1084,25 +1129,25 @@
         S.ui.newSport = null; toast("Squadra creata"); location.hash = "#/t/" + data.id + "/invita"; return;
       }
       if (kind === "event") {
-        const row = { team_id: S.team.id, title: v("title"), starts_at: toISO(v("date"), v("time")), place: v("place"), notes: v("notes"), km_round_trip: v("km") ? Number(v("km")) : null };
+        const row = { team_id: f.dataset.id ? evTeam(f.dataset.id) : S.team.id, title: v("title"), starts_at: toISO(v("date"), v("time")), place: v("place"), notes: v("notes"), km_round_trip: v("km") ? Number(v("km")) : null };
         const q = f.dataset.id ? sb.from("events").update(row).eq("id", f.dataset.id) : sb.from("events").insert({ ...row, created_by: S.user.id });
         const { error } = await q; if (error) throw error; toast(f.dataset.id ? "Trasferta aggiornata" : "Trasferta aggiunta");
       }
       if (kind === "offer") {
         if (!telOk(v("phone"))) { toast("Scrivi un numero di cellulare valido"); if (btn) btn.disabled = false; return; }
-        const { data: nr, error } = await sb.from("rides").insert({ event_id: f.dataset.id, team_id: S.team.id, kind: "parent", driver_user_id: S.user.id, driver_name: S.profile.display_name, driver_phone: v("phone"), seats: Number(v("seats")), depart_time: v("time"), depart_from: v("from"), notes: v("notes"), return_trip: fd.get("back") === "on", created_by: S.user.id }).select("id").single();
+        const { data: nr, error } = await sb.from("rides").insert({ event_id: f.dataset.id, team_id: evTeam(f.dataset.id), kind: "parent", driver_user_id: S.user.id, driver_name: S.profile.display_name, driver_phone: v("phone"), seats: Number(v("seats")), depart_time: v("time"), depart_from: v("from"), notes: v("notes"), return_trip: fd.get("back") === "on", created_by: S.user.id }).select("id").single();
         if (error) throw error; toast("Passaggio pubblicato");
         if (v("phone") && !S.profile.phone) { S.profile.phone = v("phone"); sb.from("profiles").update({ phone: v("phone") }).eq("id", S.user.id).then(() => {}); }
         const ev = S.events.find((x) => x.id === f.dataset.id);
         if (nr && ev && ev.place && v("from")) estimateKm(v("from"), ev.place).then(async (km) => { if (km != null) { await sb.rpc("set_ride_km", { p_ride: nr.id, p_km: km }); if (S.team && !anyFormOpen()) reloadTeam(); } });
       }
       if (kind === "req") {
-        const { error } = await sb.from("ride_requests").insert({ event_id: f.dataset.id, team_id: S.team.id, athlete_name: v("athlete"), depart_from: v("from"), direction: v("direction") || "ar", requested_by: S.user.id });
+        const { error } = await sb.from("ride_requests").insert({ event_id: f.dataset.id, team_id: evTeam(f.dataset.id), athlete_name: v("athlete"), depart_from: v("from"), direction: v("direction") || "ar", requested_by: S.user.id });
         if (error) { if (/duplicate|unique/i.test(error.message || "")) { toast("Per questo atleta c'è già una richiesta"); if (btn) btn.disabled = false; return; } throw error; }
         toast("Richiesta pubblicata");
       }
       if (kind === "club") {
-        const { error } = await sb.from("rides").insert({ event_id: f.dataset.id, team_id: S.team.id, kind: "club", vehicle_id: v("vehicle"), driver_name: v("driver"), seats: Number(v("seats")), depart_time: v("time"), depart_from: v("from"), return_trip: fd.get("back") === "on", assignment: v("assignment"), created_by: S.user.id });
+        const { error } = await sb.from("rides").insert({ event_id: f.dataset.id, team_id: evTeam(f.dataset.id), kind: "club", vehicle_id: v("vehicle"), driver_name: v("driver"), seats: Number(v("seats")), depart_time: v("time"), depart_from: v("from"), return_trip: fd.get("back") === "on", assignment: v("assignment"), created_by: S.user.id });
         if (error) throw error; toast("Mezzo aggiunto");
       }
       if (kind === "book") {
