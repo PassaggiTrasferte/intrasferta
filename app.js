@@ -256,7 +256,7 @@
         </form>`;
     } else if (step === "email") {
       const title = next === "#/new" ? "Registra la tua squadra" : invite ? "" : "Accedi";
-      body = `${invite ? `<div class="card invite-banner"><div class="label">Sei stato invitato in</div><h2 id="inv-name">${esc(S.ui.inviteName || "…")}</h2><div class="small muted">Accedi con la tua email per entrare nella squadra.</div></div>` : ""}
+      body = `${invite ? `<div class="intro"><div class="label">Sei stato invitato in</div><h2 id="inv-name">${esc(S.ui.inviteName || "…")}</h2><div class="small muted">Accedi con la tua email per entrare nella squadra.</div></div>` : ""}
         <form class="card form" data-form="login-email">
           ${title ? `<h2 class="full">${title}</h2>` : ""}
           <label class="full">La tua email<input type="email" name="email" required autocomplete="email" placeholder="nome@esempio.it"></label>
@@ -271,6 +271,7 @@
           <div class="actions"><button class="btn-primary" type="submit">Entra</button><button class="btn-ghost" type="button" data-act="login-restart">Cambia email</button></div>
         </form>`;
     }
+    document.body.classList.add("dark");
     $app.innerHTML = hero(step === "welcome") + `<div class="wrap narrow">${body}${privacy}</div>`;
     // nome della squadra dell'invito, visibile anche prima di accedere
     if (step === "email" && invite && !S.ui.inviteName) {
@@ -299,6 +300,7 @@
 
   // ---------- router ----------
   async function route() {
+    document.body.classList.remove("dark"); // sfondo scuro solo per le pagine di benvenuto e accesso
     const hash = location.hash || "#/";
     const p0 = hash.slice(2).split("/")[0];
     if (p0 === "termini" || p0 === "privacy") return viewLegal(p0);
@@ -378,7 +380,7 @@
     $app.innerHTML = topBar({}) + `<div class="wrap">
       <div><div class="muted">Ciao ${esc(S.profile.display_name.split(",")[0])}</div><h1>Le mie squadre</h1></div>
       ${pending.length ? `<div class="notice">Hai ${pending.length} richiest${pending.length === 1 ? "a" : "e"} in attesa di approvazione da parte dell'amministratore.</div>` : ""}
-      ${cards || `<div class="card"><h2>Benvenuto in Carpoolino</h2><div class="muted">Non sei ancora in nessuna squadra. Cosa vuoi fare?</div></div>`}
+      ${cards || `<div class="intro"><h2>Benvenuto in Carpoolino</h2><div class="muted">Non sei ancora in nessuna squadra. Cosa vuoi fare?</div></div>`}
       ${!cards && !S.ui.codeOpen ? `<button class="choice" data-act="code-open"><b>Entra nella squadra di tuo figlio</b><span>Scrivi il codice che ti ha dato l'allenatore, oppure apri il link ricevuto</span></button>
         <a class="choice" href="#/new"><b>Registra la tua squadra</b><span>Per allenatori e dirigenti: crei la squadra e inviti i genitori</span></a>` : ""}
       <div class="stack">
@@ -404,7 +406,7 @@
         <label>Categoria<input name="category" maxlength="40" placeholder="Es. U17"></label>
         <label>Stagione<input name="season" maxlength="20" value="2026/27"></label>
         <label class="full">Tuo figlio gioca in questa squadra? Scrivi il suo nome (facoltativo)<input name="athletes" maxlength="200" placeholder="Es. Luca — più nomi separati da virgola"></label>
-        <div class="full card" style="background:var(--bg)"><div class="label">Così vedranno le pagine i genitori</div>
+        <div class="full intro"><div class="label">Così vedranno le pagine i genitori</div>
           <div class="small">Luogo: <b>${esc(L.place)}</b> · Orario: <b>${esc(L.time)}</b> · Evento: <b>${esc(L.event)}</b></div></div>
         <label class="full check declare"><input name="role-ok" type="checkbox" required> <span>Sono l'allenatore o un dirigente di questa squadra e accetto i <a href="#/termini" target="_blank">Termini</a> per le società: mezzi, autisti e coperture assicurative della società restano sotto la sua responsabilità.</span></label>
         <p class="full small muted" style="margin:0">Diventerai l'amministratore: aggiungi le trasferte e inviti i genitori. Se tuo figlio è già in una squadra su Carpoolino, non crearne un'altra: chiedi il link all'allenatore.</p>
@@ -426,7 +428,7 @@
       return;
     }
     $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow">
-      <div class="card"><div class="label">Ti hanno invitato in</div><h1>${esc(t.team_name)}</h1>
+      <div class="intro"><div class="label">Ti hanno invitato in</div><h1>${esc(t.team_name)}</h1>
         <div class="meta">${esc((SPORTS[t.sport] || SPORTS.altro).label)}${t.category ? " · " + esc(t.category) : ""} · ${esc(t.season)}</div></div>
       <form class="card form" data-form="join" data-code="${esc(code)}">
         <label class="full">Nome del tuo atleta<input name="athletes" required maxlength="200" placeholder="Es. Luca — più nomi separati da virgola"></label>
@@ -448,7 +450,7 @@
     if (!rows.some((r) => r.t)) { $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="empty"><strong>Invito non valido</strong>${ERRORS.invalid_code}</div></div>`; return; }
     const open = rows.filter((r) => r.t && !r.member);
     $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow">
-      <div class="card"><div class="label">Ti hanno invitato in ${rows.filter((r) => r.t).length} squadre</div>
+      <div class="intro"><div class="label">Ti hanno invitato in ${rows.filter((r) => r.t).length} squadre</div>
         <div class="small muted">Spunta le squadre in cui gioca un tuo figlio e scrivi il suo nome accanto.</div></div>
       <form class="card form" data-form="join-multi">
         ${rows.map((r) => !r.t ? `<div class="full small muted">Un codice dell'invito non è più valido (${esc(r.code)}).</div>`

@@ -268,3 +268,20 @@ video.sp-thumb,img.sp-thumb{width:66px;height:22px;object-fit:cover}
 .feat div b{font-weight:600}
 .feat span{font-size:1.7rem;line-height:1}
 .feat div{align-content:start}
+/* testi informativi: niente riquadro, così non sembrano pulsanti */
+.intro{display:grid;gap:4px;padding:4px 2px}
+.intro h1,.intro h2{margin:0}
+/* indicatore dei passi: numeri e testo, senza riquadri */
+.wiz li{background:none;border:0;padding:4px 0;border-radius:0}
+.wiz li.on{border:0}
+.hero .hero-sub{font-size:1.2rem;color:var(--navy-ink);margin-top:2px;max-width:none}
+/* benvenuto e accesso: tutta la pagina con lo stesso sfondo scuro */
+body.dark{background:var(--navy);color:var(--navy-ink)}
+body.dark .hero{background:transparent;padding-bottom:12px}
+body.dark .feat div,body.dark .wrap>p{color:var(--navy-ink)}
+body.dark .wrap>p .btn-link,body.dark .wrap>p a,body.dark .wrap>p .btn-link{color:#7BE495}
+body.dark .wrap>p.small.muted{color:var(--navy-muted)}
+body.dark .intro,body.dark .intro .label,body.dark .intro h2{color:var(--navy-ink)}
+body.dark .intro .muted{color:var(--navy-muted)}
+body.dark .choice{border-color:transparent}
+body.dark .ver{color:var(--navy-muted)}
