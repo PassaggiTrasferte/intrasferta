@@ -704,11 +704,12 @@
     return `<label class="full">Squadra<select name="target-team" data-act-change="target-team">${ids.map((tid) => `<option value="${tid}" ${tid === cur ? "selected" : ""}>${esc(teamById(tid).name)}</option>`).join("")}</select></label>`;
   }
   function teamTabs() {
-    const tabs = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"], ["risparmio", "Risparmio"]];
     const adm = adminTeamIds();
+    const tabs = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"]];
+    if (adm.length) tabs.push(["impostazioni", "Squadra"]);
+    tabs.push(["risparmio", "Risparmio"]);
     if (adm.length) tabs.push(["mezzi", "Mezzi"], ["report", "Report"]);
     if (adm.some((tid) => premium(S.teamsById ? S.teamsById[tid] : S.team))) tabs.push(["sponsor", "Sponsor"]);
-    if (adm.length) tabs.push(["impostazioni", "Squadra"]);
     return tabs;
   }
   // scelta della squadra nelle sezioni che riguardano una sola squadra
@@ -982,7 +983,6 @@
     const tot = rides.reduce((a, r) => a + r.seats, 0);
     const free = Math.max(0, tot - bk.length);
     const booked = new Set(bk.map((b) => b.athlete_name.toLowerCase()));
-    const missing = roster().filter((a) => !booked.has(a.name.toLowerCase()));
     const admin = isAdmin();
     const chips = rides.length
       ? `<span class="chip">${rides.length} ${rides.length === 1 ? "mezzo" : "mezzi"}</span><span class="chip ${free ? "ok" : "warn"}">${free ? free + (free === 1 ? " posto libero" : " posti liberi") : "Tutto pieno"}</span>`
@@ -1000,7 +1000,6 @@
           </div>
           <div class="row">${chips}${reqs.length ? `<span class="chip warn">${reqs.length === 1 ? "1 cerca un passaggio" : reqs.length + " cercano un passaggio"}</span>` : ""}</div>
         </div>
-        ${!isPast && missing.length && rides.length ? `<div class="missing"><b>Senza posto (${missing.length}):</b> ${missing.map((a) => esc(a.name)).join(", ")}</div>` : ""}
         ${rides.map((r) => rideBlock(r, e, isPast)).join("")}
         ${!isPast && reqs.length ? reqBox(e, reqs) : ""}
         ${!isPast ? `<div class="row noprint">
@@ -1033,7 +1032,6 @@
           <div class="meta">Parte da ${esc(r.depart_from || "—")}${r.depart_time ? ` alle <b>${esc(r.depart_time)}</b>` : ""} · ${r.return_trip ? "fa anche il ritorno" : "solo andata"}${r.assignment === "convocation" ? " · posti assegnati dalla società" : ""}</div>
           ${r.km_to_venue ? `<div class="meta">≈ ${fmt(r.km_to_venue)} km fino a destinazione (percorso più veloce)${r.depart_from && e.place ? ` · <a href="${esc(mapsRoute(r.depart_from, e.place))}" target="_blank" rel="noopener">percorso in Maps</a>` : ""}</div>` : r.depart_from && e.place ? `<div class="meta"><a href="${esc(mapsRoute(r.depart_from, e.place))}" target="_blank" rel="noopener">percorso in Maps</a></div>` : ""}
           ${r.notes ? `<div class="meta">${esc(r.notes)}</div>` : ""}
-          ${r.kind === "parent" ? `<div class="meta courtesy">Passaggio di cortesia tra famiglie: chi guida è responsabile del viaggio.</div>` : ""}
           ${!mine && driverPhone(r) ? `<div class="meta"><a href="tel:${esc(waNum(driverPhone(r)) ? "+" + waNum(driverPhone(r)) : driverPhone(r))}">📞 ${esc(driverPhone(r))}</a></div>` : ""}
         </div>
         <div class="seats" aria-label="${free} posti liberi su ${r.seats}">${dots}<span class="chip ${free ? "ok" : "warn"}">${free ? free + " liberi" : "Pieno"}</span></div>
@@ -1076,7 +1074,7 @@
   function offerForm(e) {
     return `<form class="form" data-form="offer" data-id="${e.id}" style="border-top:1px solid var(--line);padding-top:12px">
       <label>Posti liberi<select name="seats">${[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `<option ${n === 3 ? "selected" : ""}>${n}</option>`).join("")}</select></label>
-      <label>Orario partenza<input name="time" type="time"></label>
+      <label>Orario partenza<input name="time" type="time" required></label>
       <label class="full">Punto di partenza<input name="from" required maxlength="120" placeholder="Es. parcheggio del palazzetto"></label>
       <label class="full">Note<input name="notes" maxlength="200" placeholder="Es. posso fare una tappa lungo la strada"></label>
       <label class="full">Telefono (per WhatsApp, visibile ai genitori della squadra)<input name="phone" type="tel" inputmode="tel" maxlength="20" placeholder="333 1234567" value="${esc(S.profile.phone || "")}"></label>
@@ -1092,7 +1090,7 @@
     return `<form class="form" data-form="club" data-id="${e.id}" style="border-top:1px solid var(--line);padding-top:12px">
       <label class="full">Mezzo<select name="vehicle">${vs.map((v) => `<option value="${v.id}" data-seats="${v.seats}">${esc(v.name)} · ${v.seats} posti</option>`).join("")}</select></label>
       <label>Posti disponibili<input name="seats" type="number" min="1" max="60" value="${vs[0].seats}"></label>
-      <label>Orario partenza<input name="time" type="time"></label>
+      <label>Orario partenza<input name="time" type="time" required></label>
       <label class="full">Autista<input name="driver" maxlength="80" placeholder="Es. coach Rossi"></label>
       <label class="full">Punto di partenza<input name="from" maxlength="120" placeholder="Es. palestra della società"></label>
       <label class="full">Assegnazione posti<select name="assignment"><option value="booking">I genitori prenotano</option><option value="convocation">La società convoca (assegna l'amministratore)</option></select></label>
@@ -1492,6 +1490,9 @@
         const row = { team_id: f.dataset.id ? evTeam(f.dataset.id) : targetTeam(false).id, title: v("title"), starts_at: toISO(v("date"), v("time")), place: v("place"), notes: v("notes"), km_round_trip: v("km") ? Number(v("km")) : null };
         const q = f.dataset.id ? sb.from("events").update(row).eq("id", f.dataset.id) : sb.from("events").insert({ ...row, created_by: S.user.id });
         const { error } = await q; if (error) throw error; toast(f.dataset.id ? "Trasferta aggiornata" : "Trasferta aggiunta");
+      }
+      if (kind === "offer" || kind === "club") {
+        if (!v("time")) { toast("Indica l'orario di partenza"); f.elements.time?.focus(); if (btn) btn.disabled = false; return; }
       }
       if (kind === "offer") {
         if (!telOk(v("phone"))) { toast("Scrivi un numero di cellulare valido"); if (btn) btn.disabled = false; return; }
