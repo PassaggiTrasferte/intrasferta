@@ -207,3 +207,8 @@ footer.foot{text-align:center;color:var(--muted);font-size:.82rem;padding:8px 16
 .sp-prev{height:40px;aspect-ratio:3/1;object-fit:cover;vertical-align:middle;border-radius:6px}
 video.sp-thumb,img.sp-thumb{width:66px;height:22px;object-fit:cover}
 @media (prefers-reduced-motion: reduce){.sp-slide{transition:none}}
+/* invito per più squadre */
+.join-row{display:grid;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+.join-row:first-of-type{border-top:none}
+.join-row .check{display:flex;gap:10px;align-items:center;font-weight:400;color:var(--ink)}
+.join-row .check input{width:22px;height:22px;min-height:0;flex:none}

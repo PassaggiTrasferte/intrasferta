@@ -183,7 +183,9 @@
   function logoSvg(h) {
     return `<svg width="${Math.round(h * 0.85)}" height="${h}" viewBox="0 0 64 75" aria-hidden="true"><path d="M32 2C16.5 2 4 14.2 4 29.4 4 50 32 73 32 73s28-23 28-43.6C60 14.2 47.5 2 32 2z" fill="#2FB36A"/><path d="M15 37v-5c0-1.7 1.1-3.2 2.8-3.7l5-1.5 5.5-6.6c.9-1.1 2.3-1.7 3.7-1.7h7.6c1.5 0 2.8.6 3.7 1.7l5.3 6.3 3 .8c1.8.4 3 2 3 3.8V37z" fill="#fff"/><circle cx="23" cy="38" r="4.2" fill="#16202E"/><circle cx="41" cy="38" r="4.2" fill="#16202E"/></svg>`;
   }
-  const footer = () => `<footer class="foot">Carpoolino beta · solo coordinamento tra famiglie, nessun pagamento · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
+  // versione letta dall'indirizzo di app.js in index.html (es. app.js?v=20261015-3)
+  const APP_VERSION = ((document.querySelector('script[src*="app.js"]') || {}).src || "").split("v=")[1] || "";
+  const footer = () => `<footer class="foot">Carpoolino beta${APP_VERSION ? " · versione " + esc(APP_VERSION) : ""} · solo coordinamento tra famiglie, nessun pagamento · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
 
   // ---------- home: le mie squadre ----------
   async function viewHome(stay) {
@@ -258,6 +260,8 @@
   // ---------- entrare con invito ----------
   async function viewJoin(code) {
     unsubscribe();
+    const codes = [...new Set(String(code).split(",").map((c) => c.trim().toUpperCase()).filter(Boolean))];
+    if (codes.length > 1) return viewJoinMulti(codes);
     $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="boot">Controllo l'invito…</div></div>`;
     logEvent("invite_open");
     const { data, error } = await sb.rpc("preview_invite", { p_code: code });
@@ -273,6 +277,33 @@
         <label class="full">Nome del tuo atleta<input name="athletes" required maxlength="200" placeholder="Es. Luca — più nomi separati da virgola"></label>
         <div class="actions"><button class="btn-primary btn-block" type="submit">Entra nella squadra</button></div>
         <p class="full small muted" style="margin:0">Gli altri membri della squadra vedranno il tuo nome e quello del tuo atleta.</p>
+      </form></div>`;
+  }
+
+  async function viewJoinMulti(codes) {
+    $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="boot">Controllo l'invito…</div></div>`;
+    logEvent("invite_open");
+    const prev = await Promise.all(codes.map((c) => sb.rpc("preview_invite", { p_code: c }).then((r) => (r.data && r.data[0]) || null, () => null)));
+    // squadre in cui sei già: confronto con i codici delle tue squadre
+    const { data: mine } = await sb.from("team_members").select("team_id,status").eq("user_id", S.user.id);
+    const myIds = (mine || []).map((m) => m.team_id);
+    const myTeams = myIds.length ? (await sb.from("teams").select("id,invite_code").in("id", myIds)).data || [] : [];
+    const already = new Set(myTeams.map((t) => t.invite_code));
+    const rows = codes.map((c, i) => ({ code: c, t: prev[i], member: already.has(c) }));
+    if (!rows.some((r) => r.t)) { $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="empty"><strong>Invito non valido</strong>${ERRORS.invalid_code}</div></div>`; return; }
+    const open = rows.filter((r) => r.t && !r.member);
+    $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow">
+      <div class="card"><div class="label">Ti hanno invitato in ${rows.filter((r) => r.t).length} squadre</div>
+        <div class="small muted">Spunta le squadre in cui gioca un tuo figlio e scrivi il suo nome accanto.</div></div>
+      <form class="card form" data-form="join-multi">
+        ${rows.map((r) => !r.t ? `<div class="full small muted">Un codice dell'invito non è più valido (${esc(r.code)}).</div>`
+          : r.member ? `<div class="full"><b>${esc(r.t.team_name)}</b> <span class="chip ok">ci sei già</span></div>`
+          : `<div class="full join-row">
+              <label class="check"><input type="checkbox" name="pick" value="${esc(r.code)}" ${open.length === 1 ? "checked" : ""}> <span><b>${esc(r.t.team_name)}</b><span class="small muted"> · ${esc((SPORTS[r.t.sport] || SPORTS.altro).label)}${r.t.category ? " · " + esc(r.t.category) : ""}</span></span></label>
+              <input name="ath-${esc(r.code)}" maxlength="200" placeholder="Nome dell'atleta in questa squadra" aria-label="Nome dell'atleta in ${esc(r.t.team_name)}">
+            </div>`).join("")}
+        ${open.length ? `<div class="actions"><button class="btn-primary btn-block" type="submit">Entra nelle squadre scelte</button></div>
+        <p class="full small muted" style="margin:0">Gli altri membri di ogni squadra vedranno il tuo nome e quello del tuo atleta.</p>` : `<div class="full"><a class="btn btn-primary btn-block" href="#/">Vai alle trasferte</a></div>`}
       </form></div>`;
   }
 
@@ -722,7 +753,7 @@
     const reqs = S.requests.filter((q) => q.event_id === e.id);
     const confirming = S.ui.confirm === "event:" + e.id;
     return `<article class="trip ${isPast ? "past" : ""}">
-      <div class="stub">${S.multi ? `<span class="cat" title="${esc(S.team.name)}">${esc(S.team.category || S.team.name)}</span>` : ""}<span class="dow">${p.dow}</span><span class="day">${p.day}</span><span class="mon">${p.mon}</span><span class="time">${p.time}</span></div>
+      <div class="stub"><span class="cat" title="${esc(S.team.name)}">${esc(S.team.category || S.team.name)}</span><span class="dow">${p.dow}</span><span class="day">${p.day}</span><span class="mon">${p.mon}</span><span class="time">${p.time}</span></div>
       <div class="tbody">
         <div class="between" style="align-items:start">
           <div style="min-width:0"><h2>${esc(e.title)}</h2>
@@ -899,13 +930,21 @@
   }
 
   // ----- tab invita -----
-  const inviteUrl = () => location.origin + location.pathname + "#/join/" + S.team.invite_code;
-  const inviteText = () => `Ciao! Per organizzare i passaggi alle trasferte di ${S.team.name} usiamo Carpoolino: entra da qui e scrivi il nome del tuo atleta. ${inviteUrl()}`;
+  // squadre incluse nell'invito: di default quella aperta; l'amministratore di più squadre può aggiungerne
+  const inviteTeams = () => { const sel = (S.ui.invSel || []).filter((tid) => adminTeamIds().includes(tid) && teamById(tid)); return sel.length ? sel.map(teamById) : [S.team]; };
+  const inviteUrl = () => location.origin + location.pathname + "#/join/" + inviteTeams().map((t) => t.invite_code).join(",");
+  const inviteText = () => { const ts = inviteTeams(); const names = ts.length === 1 ? ts[0].name : ts.slice(0, -1).map((t) => t.name).join(", ") + " e " + ts[ts.length - 1].name; return `Ciao! Per organizzare i passaggi alle trasferte di ${names} usiamo Carpoolino: entra da qui${ts.length > 1 ? ", scegli le squadre" : ""} e scrivi il nome del tuo atleta. ${inviteUrl()}`; };
   function tabInvite() {
     const admin = isAdmin();
-    return `<div class="card">
+    const adm = adminTeamIds();
+    const multiInv = admin && adm.length > 1;
+    const selIds = inviteTeams().map((t) => t.id);
+    return `${multiInv ? `<div class="card"><div class="label">Squadre incluse nell'invito</div>
+        <div class="pill-group">${adm.map((tid) => `<label class="pill check-pill"><input type="checkbox" data-act="inv-toggle" data-id="${tid}" ${selIds.includes(tid) ? "checked" : ""}> ${esc(teamById(tid).name)}</label>`).join("")}</div>
+        <div class="small muted">Con più squadre il genitore riceve un solo link e sceglie lui in quali entrare: utile per i fratelli.</div></div>` : ""}
+      <div class="card">
         <div class="qr" id="qr" role="img" aria-label="QR code dell'invito"></div>
-        <div class="small muted" style="text-align:center">Inquadra per entrare nella squadra · codice <b>${esc(S.team.invite_code)}</b></div>
+        <div class="small muted" style="text-align:center">${selIds.length > 1 ? `Inquadra per entrare in ${selIds.length} squadre` : `Inquadra per entrare nella squadra · codice <b>${esc(inviteTeams()[0].invite_code)}</b>`}</div>
         <div class="code">${esc(inviteUrl())}</div>
         <div class="row"><button class="btn-ghost" data-act="copy-link">Copia link</button>
           <a class="btn btn-ok" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(inviteText())}">Invia su WhatsApp</a>
@@ -1041,6 +1080,7 @@
       "print": () => window.print(),
       "csv": () => withTeam(S.team.id, exportCSV),
       "copy-link": () => copy(inviteUrl()),
+      "inv-toggle": () => { const cur = inviteTeams().map((t) => t.id); const id = b.dataset.id; const nxt = b.checked ? [...new Set(cur.concat(id))] : cur.filter((x) => x !== id); S.ui.invSel = nxt.length ? nxt : [S.team.id]; renderTeam(); },
       "copy-text": () => copy(inviteText()),
       "admin-filter": () => { S.ui.adminFilter = b.dataset.v; renderAdmin(); },
       "admin-csv": () => adminCSV(),
@@ -1148,6 +1188,22 @@
         return;
       }
       if (kind === "code-join") { S.ui.codeOpen = false; location.hash = "#/join/" + encodeURIComponent(v("code").toUpperCase()); return; }
+      if (kind === "join-multi") {
+        const picks = fd.getAll("pick");
+        if (!picks.length) { toast("Spunta almeno una squadra"); if (btn) btn.disabled = false; return; }
+        const miss = picks.find((c) => !String(fd.get("ath-" + c) || "").trim());
+        if (miss) { toast("Scrivi il nome dell'atleta per ogni squadra spuntata"); f.elements["ath-" + miss]?.focus(); if (btn) btn.disabled = false; return; }
+        let ok = 0, wait = 0, last = null;
+        for (const c of picks) {
+          const { data, error } = await sb.rpc("join_team", { p_code: c, p_athletes: String(fd.get("ath-" + c)).trim() });
+          if (error) { toast(errMsg(error)); continue; }
+          const r = data && data[0]; if (!r) continue;
+          if (r.status === "pending") wait++; else { ok++; last = r.team_id; }
+        }
+        toast(ok && wait ? `Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}; ${wait} in attesa di approvazione` : ok ? `Benvenuto! Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}` : wait ? "Richiesta inviata: attendi l'approvazione" : "Nessuna squadra aggiunta");
+        if (last) store("it-last-team", last);
+        location.hash = "#/"; return;
+      }
       if (kind === "join") {
         const { data, error } = await sb.rpc("join_team", { p_code: f.dataset.code, p_athletes: v("athletes") }); if (error) throw error;
         const r = data && data[0];
