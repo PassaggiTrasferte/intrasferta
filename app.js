@@ -315,12 +315,10 @@
           <h2 class="full">Accedi</h2>
           <label class="full">Email<input type="email" name="email" required autocomplete="email" placeholder="nome@esempio.it" value="${esc(S.ui.lastEmail || "")}"></label>
           ${pwField("password", "Password", "current-password")}
-          <div class="full" style="text-align:right;margin-top:-4px"><button type="button" class="btn-link" data-act="pw-forgot">Password dimenticata?</button></div>
           <div class="actions"><button class="btn-primary btn-block" type="submit">Entra</button></div>
-          ${S.ui.loginFailed ? `<div class="full notice" style="margin:0"><b>Non hai ancora una password o non la ricordi?</b>
-            <div class="small">Ti mandiamo un codice a <b>${esc(S.ui.lastEmail || "")}</b>: lo inserisci e scegli la password.</div>
-            <div style="margin-top:8px"><button type="button" class="btn-primary" data-act="pw-send-code">Mandami un codice</button></div></div>` : ""}
-          <p class="full small muted" style="margin:0;text-align:center">oppure <button type="button" class="btn-link" data-act="otp-login">accedi con un codice via email</button></p>
+          <div class="full notice" style="margin:0"><b>Non hai ancora una password o non la ricordi?</b>
+            <div class="small">Ti mandiamo un codice alla tua email: lo inserisci e scegli la password.</div>
+            <div style="margin-top:8px"><button type="button" class="btn-primary" data-act="pw-send-code">Mandami un codice</button></div></div>
         </form>
         <p style="text-align:center;margin:0"><button class="btn-link" data-act="landing-back">← Indietro</button></p>`;
     } else if (step === "email") {
@@ -1527,7 +1525,10 @@
       "pw-show": () => { const i = b.parentElement.querySelector("input"); const show = i.type === "password"; i.type = show ? "text" : "password"; b.textContent = show ? "Nascondi" : "Mostra"; },
       "pw-forgot": () => { S.ui.lastEmail = document.querySelector('[data-form="login-pw"] input[name=email]')?.value || S.ui.lastEmail; S.ui.otpPurpose = "reset"; S.ui.landing = "email"; viewLogin(); },
       "pw-send-code": async () => {
-        const email = S.ui.lastEmail; if (!email) return;
+        const inp = document.querySelector('[data-form="login-pw"] input[name=email]');
+        const email = (inp && inp.value.trim()) || S.ui.lastEmail || "";
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast("Scrivi prima la tua email"); inp?.focus(); return; }
+        S.ui.lastEmail = email;
         b.disabled = true;
         const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: false } });
         if (error) { b.disabled = false; return toast(errMsg(error)); }
