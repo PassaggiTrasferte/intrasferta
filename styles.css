@@ -294,3 +294,10 @@ body.dark .ver{color:var(--navy-muted)}
 .kid-row label{display:grid;gap:4px;font-size:.88rem;font-weight:600;color:var(--muted)}
 .join-row .kid-row label{font-weight:600}
 .form label.check-pill{display:inline-flex;color:var(--ink)}
+/* password */
+.pw-wrap{position:relative;display:block}
+.pw-wrap input{width:100%;padding-right:84px}
+.pw-eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:.85rem}
+.pw-rules{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--muted)}
+.pw-rules .ok{color:#1F8A4C}
+body.dark .card{color:var(--ink)}

@@ -59,6 +59,14 @@
     only_admins_create_teams: "Solo gli amministratori possono creare una squadra. Per una nuova società scrivi al supporto.",
     need_own_ride:"Prima offri il tuo passaggio su questa trasferta, poi premi di nuovo «Lo porto io».",
     own_ride_full: "La tua auto è piena.",
+    pw_weak: "La password deve avere almeno 8 caratteri, con lettere e numeri.",
+    pw_mismatch: "Le due password non coincidono.",
+    "Invalid login credentials": "Email o password non corretti. Se non hai ancora una password, accedi con un codice via email.",
+    "should be different from the old": "La nuova password deve essere diversa da quella attuale.",
+    "Password should": "La password deve avere almeno 8 caratteri, con lettere e numeri.",
+    "only request this after": "Attendi qualche secondo prima di chiedere un nuovo codice.",
+    "Token has expired or is invalid": "Codice non valido o scaduto.",
+    "Signups not allowed for otp": "Non c'è un account con questa email. Torna indietro e scegli «Entra nella squadra» o «Registra la tua squadra».",
     athlete_name_required: "Scrivi il nome del ragazzo.",
     too_many_athletes: "Hai già inserito molti ragazzi in questa squadra."
   };
@@ -303,21 +311,38 @@
           <p class="full small muted" style="margin:0">Il codice te lo dà l'allenatore o lo trovi sotto il QR. Se hai ricevuto un link su WhatsApp, aprilo: entri direttamente. Il QR si inquadra con la fotocamera del telefono.</p>
           <div class="actions"><button class="btn-primary" type="submit">Continua</button><button class="btn-ghost" type="button" data-act="landing-back">Indietro</button></div>
         </form>`;
+    } else if (step === "login") {
+      body = `<form class="card form" data-form="login-pw">
+          <h2 class="full">Accedi</h2>
+          <label class="full">Email<input type="email" name="email" required autocomplete="email" placeholder="nome@esempio.it" value="${esc(S.ui.lastEmail || "")}"></label>
+          ${pwField("password", "Password", "current-password")}
+          <div class="full" style="text-align:right;margin-top:-4px"><button type="button" class="btn-link" data-act="pw-forgot">Password dimenticata?</button></div>
+          <div class="actions"><button class="btn-primary btn-block" type="submit">Entra</button></div>
+          <p class="full small muted" style="margin:0;text-align:center">oppure <button type="button" class="btn-link" data-act="otp-login">accedi con un codice via email</button></p>
+        </form>
+        <p style="text-align:center;margin:0"><button class="btn-link" data-act="landing-back">← Indietro</button></p>`;
     } else if (step === "email") {
-      const title = next === "#/new" ? "Registra la tua squadra" : invite ? "" : "Accedi";
-      body = `${invite ? `<div class="intro"><div class="label">Sei stato invitato in</div><h2 id="inv-name">${esc(S.ui.inviteName || "…")}</h2><div class="small muted">Accedi con la tua email per entrare nella squadra.</div></div>` : ""}
+      // codice via email: registrazione, accesso alternativo, password dimenticata
+      const purpose = S.ui.otpPurpose || "";
+      const title = purpose === "reset" ? "Reimposta la password" : purpose === "login" ? "Accedi con un codice" : next === "#/new" ? "Registra la tua squadra" : invite ? "" : "Crea il tuo account";
+      const help = purpose === "reset" ? "Ti mandiamo un codice di 6 cifre: lo inserisci e scegli una nuova password."
+        : purpose === "login" ? "Ti mandiamo un codice di 6 cifre per entrare senza password."
+        : "Ti mandiamo un codice di 6 cifre per verificare che l'email sia tua. Subito dopo scegli la password.";
+      body = `${invite ? `<div class="intro"><div class="label">Sei stato invitato in</div><h2 id="inv-name">${esc(S.ui.inviteName || "…")}</h2><div class="small muted">Inserisci la tua email per entrare nella squadra.</div></div>` : ""}
         <form class="card form" data-form="login-email">
           ${title ? `<h2 class="full">${title}</h2>` : ""}
-          <label class="full">La tua email<input type="email" name="email" required autocomplete="email" placeholder="nome@esempio.it"></label>
-          <div class="actions"><button class="btn-primary btn-block" type="submit">Ricevi il codice di accesso</button></div>
-          <p class="full small muted" style="margin:0">Niente password: ti mandiamo un codice di 6 cifre via email. Se è la prima volta, l'account si crea da solo.</p>
+          <label class="full">La tua email<input type="email" name="email" required autocomplete="email" placeholder="nome@esempio.it" value="${esc(S.ui.lastEmail || "")}"></label>
+          <div class="actions"><button class="btn-primary btn-block" type="submit">${purpose === "reset" ? "Mandami il codice" : purpose === "login" ? "Mandami il codice" : "Ricevi il codice di verifica"}</button></div>
+          <p class="full small muted" style="margin:0">${help}</p>
+          ${purpose ? "" : `<p class="full small" style="margin:0">Hai già un account? <button type="button" class="btn-link" data-act="landing-login">Accedi con la password</button></p>`}
         </form>
         <p style="text-align:center;margin:0"><button class="btn-link" data-act="landing-back">← Indietro</button></p>`;
     } else {
       body = `<form class="card form" data-form="login-code">
           <p class="full" style="margin:0">Abbiamo scritto a <b>${esc(S.ui.loginEmail)}</b>. Inserisci il codice ricevuto, oppure apri il link nella mail da questo stesso telefono.</p>
           <label class="full">Codice<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" required placeholder="123456"></label>
-          <div class="actions"><button class="btn-primary" type="submit">Entra</button><button class="btn-ghost" type="button" data-act="login-restart">Cambia email</button></div>
+          <div class="actions"><button class="btn-primary" type="submit">${S.ui.otpPurpose === "reset" ? "Continua" : "Verifica"}</button><button class="btn-ghost" type="button" data-act="login-restart">Cambia email</button></div>
+          <p class="full small muted" style="margin:0">Non è arrivato? Controlla nella posta indesiderata, oppure <button type="button" class="btn-link" data-act="login-restart">riprova</button>.</p>
         </form>`;
     }
     document.body.classList.add("dark");
@@ -331,6 +356,57 @@
         const el = document.getElementById("inv-name"); if (el) el.textContent = S.ui.inviteName;
       });
     }
+  }
+
+  // ---------- password ----------
+  const pwField = (name, label, ac, hint) => `<label class="full">${label}<span class="pw-wrap"><input type="password" name="${name}" required ${ac === "current-password" ? "" : 'minlength="8"'} maxlength="72" autocomplete="${ac || "new-password"}"><button type="button" class="btn-link pw-eye" data-act="pw-show">Mostra</button></span>${hint ? `<span class="small muted" style="font-weight:400">${hint}</span>` : ""}</label>`;
+  const pwRules = () => `<div class="full small pw-rules"><span data-r="len">○ almeno 8 caratteri</span> <span data-r="mix">○ lettere e numeri</span> <span data-r="eq">○ le due password coincidono</span></div>`;
+  const pwOk = (a) => a.length >= 8 && /[A-Za-zÀ-ÿ]/.test(a) && /\d/.test(a);
+  const pwSet = () => !!(S.user && S.user.user_metadata && S.user.user_metadata.pw_set);
+  // primo accesso, utenti già registrati (una volta sola) e password dimenticata
+  function viewSetPassword() {
+    const reset = store("it-forcepw") === "1";
+    document.body.classList.add("dark");
+    $app.innerHTML = `<div class="hero"><div class="in"><h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg" alt="Carpoolino" class="wordmark"></h1></div></div>
+      <div class="wrap narrow"><form class="card form" data-form="set-pw">
+        <h2 class="full">${reset ? "Scegli la nuova password" : "Scegli la tua password"}</h2>
+        <p class="full muted" style="margin:0">${reset ? "Da ora entrerai" : "La userai per entrare in Carpoolino"} con <b>${esc(S.user.email || "")}</b>.</p>
+        ${pwField("pw1", reset ? "Nuova password" : "Password", "new-password", "Almeno 8 caratteri, con lettere e numeri.")}
+        ${pwField("pw2", "Ripeti la password")}
+        ${pwRules()}
+        ${S.ui.pwNonce ? `<label class="full">Codice ricevuto via email<input name="nonce" inputmode="numeric" autocomplete="one-time-code" required placeholder="123456"><span class="small muted" style="font-weight:400">Per sicurezza ti abbiamo mandato un codice a ${esc(S.user.email || "")}.</span></label>` : ""}
+        <div class="actions"><button class="btn-primary btn-block" type="submit">Salva e continua</button></div>
+      </form></div>`;
+  }
+  function securityCard() {
+    return `<form class="card form" data-form="change-pw" id="sicurezza">
+      <div class="full label">Sicurezza</div>
+      <div class="full small">Accesso con <b>${esc(S.user.email || "")}</b></div>
+      ${pwField("pw1", "Nuova password")}
+      ${pwField("pw2", "Ripeti la nuova password")}
+      ${pwRules()}
+      ${S.ui.pwNonce ? `<label class="full">Codice ricevuto via email<input name="nonce" inputmode="numeric" autocomplete="one-time-code" required placeholder="123456"><span class="small muted" style="font-weight:400">Per sicurezza ti abbiamo mandato un codice a ${esc(S.user.email || "")}: inseriscilo per confermare.</span></label>`
+        : `<p class="full small muted" style="margin:0">Se non entri da un po', per sicurezza ti mandiamo un codice via email prima di cambiarla.</p>`}
+      <div class="actions"><button class="btn-primary" type="submit">Cambia password</button></div>
+    </form>`;
+  }
+  // imposta la password; se Supabase chiede una verifica, manda il codice e la chiede
+  async function savePassword(fd) {
+    const a = String(fd.get("pw1") || ""), b = String(fd.get("pw2") || "");
+    if (!pwOk(a)) throw new Error("pw_weak");
+    if (a !== b) throw new Error("pw_mismatch");
+    const upd = { password: a, data: { pw_set: true } };
+    if (fd.get("nonce")) upd.nonce = String(fd.get("nonce")).trim();
+    const { data, error } = await sb.auth.updateUser(upd);
+    if (error) {
+      if (/reauthenticat/i.test(error.message || "") || error.code === "reauthentication_needed") {
+        const r = await sb.auth.reauthenticate(); if (r.error) throw r.error;
+        S.ui.pwNonce = true; return "nonce";
+      }
+      throw error;
+    }
+    S.ui.pwNonce = false; if (data && data.user) S.user = data.user;
+    return "ok";
   }
 
   function viewName() {
@@ -373,6 +449,7 @@
     if (p0 === "termini" || p0 === "privacy") return viewLegal(p0);
     if (!S.session) return viewLogin(hash !== "#/" ? hash : null);
     try { await ensureProfile(); } catch (e) { toast(errMsg(e)); }
+    if (!pwSet() || store("it-forcepw") === "1") return viewSetPassword();
     if (!consentsOk()) return viewConsents();
     if (!S.profile?.display_name) return viewName();
     if (S.myKids && (!S.profile.last_name || S.myKids.some((k) => !k.last_name))) return viewFillSurnames();
@@ -593,6 +670,7 @@
         <div class="actions"><button class="btn-primary" type="submit">Salva e torna alle trasferte</button></div>
       </form>
       ${kidsCard()}
+      ${securityCard()}
       <a class="btn btn-ghost btn-block" href="#/">← Torna alle trasferte</a>
       ${S.platformAdmin ? `<a class="btn btn-primary btn-block" href="#/admin">Pannello di amministrazione</a>` : ""}
       ${privacyCard()}
@@ -1444,6 +1522,9 @@
     const act = b.dataset.act, id = b.dataset.id;
     const simple = {
       "login-restart": () => { S.ui.loginEmail = null; viewLogin(); },
+      "pw-show": () => { const i = b.parentElement.querySelector("input"); const show = i.type === "password"; i.type = show ? "text" : "password"; b.textContent = show ? "Nascondi" : "Mostra"; },
+      "pw-forgot": () => { S.ui.lastEmail = document.querySelector('[data-form="login-pw"] input[name=email]')?.value || S.ui.lastEmail; S.ui.otpPurpose = "reset"; S.ui.landing = "email"; viewLogin(); },
+      "otp-login": () => { S.ui.lastEmail = document.querySelector('[data-form="login-pw"] input[name=email]')?.value || S.ui.lastEmail; S.ui.otpPurpose = "login"; S.ui.landing = "email"; viewLogin(); },
       "wiz-next": () => { store("it-wizard-" + S.team.id, "3"); location.hash = "#/t/" + S.team.id + "/invita"; },
       "wiz-done": () => { store("it-wizard-" + S.team.id, null); location.hash = "#/t/" + S.team.id + "/trasferte"; toast("Tutto pronto!"); },
       "steps-hide": () => { store("it-steps-hide-" + S.team.id, "1"); renderTeam(); },
@@ -1455,8 +1536,8 @@
       "del-cancel": () => { S.ui.confirmDelete = false; viewProfile(); },
       "landing-create": () => { store("it-next", "#/new"); S.ui.landing = "email"; viewLogin(); },
       "landing-join": () => { store("it-next", null); S.ui.landing = "code"; viewLogin(); },
-      "landing-login": () => { store("it-next", null); S.ui.landing = "email"; viewLogin(); },
-      "landing-back": () => { store("it-next", null); S.ui.landing = "welcome"; S.ui.inviteName = null; viewLogin(); },
+      "landing-login": () => { S.ui.otpPurpose = null; S.ui.landing = "login"; viewLogin(); },
+      "landing-back": () => { if (S.ui.otpPurpose) { S.ui.otpPurpose = null; S.ui.landing = "login"; return viewLogin(); } store("it-next", null); S.ui.landing = "welcome"; S.ui.inviteName = null; viewLogin(); },
       "code-open": () => { S.ui.codeOpen = true; viewHome(); },
       "kid-more": () => { const box = b.closest(".kids"); const rows = box.querySelectorAll(".kid-row"); const last = rows[0]?.querySelector('input[name^="kl"]')?.value || ""; b.parentElement.insertAdjacentHTML("beforebegin", kidRow("", last, false)); box.querySelectorAll(".kid-row")[rows.length].querySelector("input").focus(); },
       "kid-new": () => { S.ui.kidEdit = "new"; viewProfile(); },
@@ -1555,6 +1636,15 @@
     } catch (e) { toast(errMsg(e)); b.disabled = false; if (act === "toggle-approval") b.checked = !b.checked; }
   });
 
+  // regole della password che si spuntano mentre si scrive
+  document.addEventListener("input", (ev) => {
+    const f = ev.target.form; if (!f || !f.elements.pw1) return;
+    const rules = f.querySelector(".pw-rules"); if (!rules) return;
+    const a = f.elements.pw1.value, b = f.elements.pw2 ? f.elements.pw2.value : "";
+    const st = { len: a.length >= 8, mix: /[A-Za-zÀ-ÿ]/.test(a) && /\d/.test(a), eq: !!a && a === b };
+    rules.querySelectorAll("[data-r]").forEach((x) => { const ok = st[x.dataset.r]; x.classList.toggle("ok", ok); x.textContent = (ok ? "✓ " : "○ ") + x.textContent.slice(2); });
+  });
+
   document.addEventListener("change", (ev) => {
     const sel = ev.target.closest('select[name="vehicle"]');
     if (sel) { const o = sel.selectedOptions[0]; const f = sel.form; if (o && f.elements.seats) f.elements.seats.value = o.dataset.seats; }
@@ -1580,17 +1670,38 @@
     const fd = new FormData(f); const v = (k) => String(fd.get(k) ?? "").trim();
     const btn = f.querySelector('button[type="submit"]'); if (btn) btn.disabled = true;
     try {
-      if (kind === "login-email") {
-        const email = v("email");
-        const redirect = location.origin + location.pathname;
-        const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: redirect, shouldCreateUser: true } });
+      if (kind === "login-pw") {
+        S.ui.lastEmail = v("email");
+        const { error } = await sb.auth.signInWithPassword({ email: v("email"), password: String(fd.get("password") || "") });
         if (error) throw error;
+        store("it-forcepw", null); S.ui.landing = null; return; // il cambio di sessione apre l'app
+      }
+      if (kind === "login-email") {
+        const email = v("email"); S.ui.lastEmail = email;
+        const redirect = location.origin + location.pathname;
+        const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: redirect, shouldCreateUser: S.ui.otpPurpose !== "reset" && S.ui.otpPurpose !== "login" } });
+        if (error) throw error;
+        store("it-forcepw", S.ui.otpPurpose === "reset" ? "1" : null); // vale anche se si apre il link nella mail
         S.ui.loginEmail = email; viewLogin(); return;
       }
       if (kind === "login-code") {
         const { error } = await sb.auth.verifyOtp({ email: S.ui.loginEmail, token: v("code"), type: "email" });
         if (error) { toast("Codice non valido o scaduto"); if (btn) btn.disabled = false; return; }
-        S.ui.loginEmail = null; return;
+        S.ui.loginEmail = null; S.ui.otpPurpose = null; S.ui.landing = null; return;
+      }
+      if (kind === "set-pw" || kind === "change-pw") {
+        const r = await savePassword(fd);
+        if (r === "nonce") {
+          toast("Ti abbiamo mandato un codice via email");
+          if (kind === "set-pw") viewSetPassword(); else { await viewProfile(); document.getElementById("sicurezza")?.scrollIntoView(); }
+          const nf = document.querySelector(`[data-form="${kind}"]`); // non far riscrivere la password
+          if (nf) { nf.elements.pw1.value = fd.get("pw1"); nf.elements.pw2.value = fd.get("pw2"); nf.elements.nonce?.focus(); nf.elements.pw1.dispatchEvent(new Event("input", { bubbles: true })); }
+          return;
+        }
+        store("it-forcepw", null);
+        toast(kind === "set-pw" ? "Password salvata" : "Password cambiata");
+        if (kind === "set-pw") route(); else viewProfile();
+        return;
       }
       if (kind === "profile-name") {
         if (!telOk(v("phone"))) { toast("Scrivi un numero di cellulare valido"); if (btn) btn.disabled = false; return; }
