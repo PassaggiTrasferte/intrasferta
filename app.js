@@ -1240,7 +1240,7 @@
           </div>
           <div class="row">${chips}${reqs.length ? `<span class="chip warn">${reqs.length === 1 ? "1 cerca un passaggio" : reqs.length + " cercano un passaggio"}</span>` : ""}</div>
         </div>
-        ${rides.map((r) => rideBlock(r, e, isPast)).join("")}
+        ${rides.length ? `<div class="offers"><div class="reqs-head"><span aria-hidden="true">🚗</span><b>Offrono un passaggio</b><span class="offers-n">${rides.length}</span></div>${(rides.length > 3 && !(S.ui.allRides || {})[e.id] ? rides.slice(0, 3) : rides).map((r) => rideBlock(r, e, isPast)).join("")}${rides.length > 3 ? `<button class="btn-link" data-act="all-rides" data-id="${e.id}">${(S.ui.allRides || {})[e.id] ? "Mostra meno" : `Mostra altri ${rides.length - 3} mezzi`}</button>` : ""}</div>` : ""}
         ${!isPast && reqs.length ? reqBox(e, reqs) : ""}
         ${!isPast ? `<div class="row noprint">
           ${S.ui.offer === e.id ? "" : `<button class="btn-ghost" data-act="offer" data-id="${e.id}">🚗 Offro un passaggio</button>`}
@@ -1262,24 +1262,26 @@
     const mine = r.created_by === S.user.id;
     const admin = isAdmin();
     const veh = r.vehicle_id ? S.vehicles.find((v) => v.id === r.vehicle_id) : null;
-    const who = r.kind === "club" ? `${veh ? esc(veh.name) : "Mezzo"}${r.driver_name ? " · autista " + esc(r.driver_name) : ""}` : esc(r.driver_name);
+    const who = r.kind === "club" ? ([veh ? esc(veh.name) : "", r.driver_name ? "autista " + esc(r.driver_name) : ""].filter(Boolean).join(" · ") || "pulmino") : esc(r.driver_name);
     const dots = Array.from({ length: Math.min(r.seats, 20) }, (_, i) => `<span class="seat ${i < rs.length ? "taken" : ""}"></span>`).join("");
     const canBook = !isPast && free > 0 && (r.assignment === "booking" || admin);
     const confirming = S.ui.confirm === "ride:" + r.id;
+    const open = !!(S.ui.rideOpen || {})[r.id];
+    const details = [
+      r.km_to_venue ? `≈ ${fmt(r.km_to_venue)} km fino a destinazione` : "",
+      r.depart_from && e.place ? `<a href="${esc(mapsRoute(r.depart_from, e.place))}" target="_blank" rel="noopener">percorso in Maps</a>` : "",
+      !mine && driverPhone(r) ? `<a href="tel:${esc(waNum(driverPhone(r)) ? "+" + waNum(driverPhone(r)) : driverPhone(r))}">📞 ${esc(driverPhone(r))}</a>` : "",
+      r.notes ? esc(r.notes) : "",
+      r.assignment === "convocation" ? "posti assegnati dalla società" : ""
+    ].filter(Boolean);
     return `<div class="ride ${r.kind === "club" ? "club" : ""}">
-      <div class="between" style="align-items:baseline">
-        <div style="min-width:0"><span class="driver">${who}</span>
-          <div class="meta">Parte da ${esc(r.depart_from || "—")}${r.depart_time ? ` alle <b>${esc(r.depart_time)}</b>` : ""} · ${r.return_trip ? "fa anche il ritorno" : "solo andata"}${r.assignment === "convocation" ? " · posti assegnati dalla società" : ""}</div>
-          ${r.km_to_venue ? `<div class="meta">≈ ${fmt(r.km_to_venue)} km fino a destinazione (percorso più veloce)${r.depart_from && e.place ? ` · <a href="${esc(mapsRoute(r.depart_from, e.place))}" target="_blank" rel="noopener">percorso in Maps</a>` : ""}</div>` : r.depart_from && e.place ? `<div class="meta"><a href="${esc(mapsRoute(r.depart_from, e.place))}" target="_blank" rel="noopener">percorso in Maps</a></div>` : ""}
-          ${r.notes ? `<div class="meta">${esc(r.notes)}</div>` : ""}
-          ${!mine && driverPhone(r) ? `<div class="meta"><a href="tel:${esc(waNum(driverPhone(r)) ? "+" + waNum(driverPhone(r)) : driverPhone(r))}">📞 ${esc(driverPhone(r))}</a></div>` : ""}
-        </div>
-        <div class="seats" aria-label="${free} posti liberi su ${r.seats}">${dots}<span class="chip ${free ? "ok" : "warn"}">${free ? free + " liberi" : "Pieno"}</span></div>
-      </div>
+      <div class="ride-top"><span class="driver">${who}</span><span class="chip ${free ? "ok" : "warn"}">${free ? free + (free === 1 ? " libero" : " liberi") : "Pieno"}</span></div>
+      <div class="meta">${r.depart_time ? `🕔 <b>${esc(r.depart_time)}</b> · ` : ""}${esc(r.depart_from || "—")} · ${r.return_trip ? "andata e ritorno" : "solo andata"}${details.length ? ` · <button class="btn-link" data-act="ride-more" data-id="${r.id}">${open ? "meno" : "dettagli"}</button>` : ""}</div>
+      ${open ? `<div class="meta">${details.join(" · ")}</div>` : ""}
       ${rs.length ? `<ul class="pax">${rs.map((b) => `<li><span>${esc(b.athlete_name)}${b.pickup ? ` <small>· sale a ${esc(b.pickup)}</small>` : ""}</span>${!isPast && (b.booked_by === S.user.id || mine || admin) ? `<button class="btn-link danger" data-act="unbook" data-id="${b.id}">Libera</button>` : ""}</li>`).join("")}</ul>` : ""}
       ${S.ui.book === r.id ? bookForm(r) : ""}
       ${!isPast ? `<div class="row noprint">
-        ${canBook && S.ui.book !== r.id ? `<button class="btn-primary" data-act="book" data-id="${r.id}">${r.assignment === "convocation" ? "Assegna un posto" : "Prenota un posto"}</button>` : ""}
+        ${canBook && S.ui.book !== r.id ? `<button class="btn-primary btn-sm" data-act="book" data-id="${r.id}">${r.assignment === "convocation" ? "Assegna un posto" : "Prenota"}</button>` : ""}
         ${mine || admin ? (confirming
           ? `<span class="confirm">Ritirare questo mezzo? Le prenotazioni verranno cancellate. <button class="btn-link danger" data-act="del-ride" data-id="${r.id}">Sì</button><button class="btn-link" data-act="cancel">No</button></span>`
           : `<button class="btn-link" data-act="ask-del-ride" data-id="${r.id}">${r.kind === "club" ? "Togli mezzo" : "Ritira la mia auto"}</button>`) : ""}
@@ -1292,14 +1294,13 @@
   function reqBox(e, reqs) {
     return `<div class="reqs">
       <div class="reqs-head"><span aria-hidden="true">🙋</span><b>Cercano un passaggio</b><span class="reqs-n">${reqs.length}</span></div>
-      <ul>${reqs.map((q) => {
+      <ul>${(reqs.length > 3 && !(S.ui.allReqs || {})[e.id] ? reqs.slice(0, 3) : reqs).map((q) => {
         const mineQ = q.requested_by === S.user.id;
         const dir = DIR[q.direction] || "";
-        return `<li class="req"><div class="avatar sm" aria-hidden="true">${esc(initials(q.athlete_name))}</div>
-          <div class="req-main"><b>${esc(q.athlete_name)}</b>
+        return `<li class="req"><div class="req-main"><b>${esc(q.athlete_name)}</b>
             <div class="req-meta">${dir ? `<span class="tag">${esc(dir.charAt(0).toUpperCase() + dir.slice(1))}</span>` : ""}${q.depart_from ? `<span class="tag">da ${esc(q.depart_from)}</span>` : ""}<span>chiesto da ${mineQ ? "te" : esc(firstName(member(q.requested_by).name))}</span></div></div>
-          <div class="req-act">${!mineQ ? `<button class="btn-ok" data-act="take" data-id="${q.id}">Lo porto io</button>` : ""}${mineQ || isAdmin() ? `<button class="btn-link danger" data-act="del-req" data-id="${q.id}">Ritira</button>` : ""}</div></li>`;
-      }).join("")}</ul></div>`;
+          <div class="req-act">${!mineQ ? `<button class="btn-ok btn-sm" data-act="take" data-id="${q.id}">Lo porto io</button>` : ""}${mineQ || isAdmin() ? `<button class="btn-link danger" data-act="del-req" data-id="${q.id}">Ritira</button>` : ""}</div></li>`;
+      }).join("")}</ul>${reqs.length > 3 ? `<button class="btn-link" data-act="all-reqs" data-id="${e.id}">${(S.ui.allReqs || {})[e.id] ? "Mostra meno" : `Mostra altre ${reqs.length - 3} richieste`}</button>` : ""}</div>`;
   }
 
   // scelta dei propri figli con le spunte, invece di scrivere il nome
@@ -1602,6 +1603,9 @@
       "code-open": () => { S.ui.codeOpen = true; viewHome(); },
       "kid-more": () => { const box = b.closest(".kids"); const rows = box.querySelectorAll(".kid-row"); const last = rows[0]?.querySelector('input[name^="kl"]')?.value || ""; b.parentElement.insertAdjacentHTML("beforebegin", kidRow("", last, false)); box.querySelectorAll(".kid-row")[rows.length].querySelector("input").focus(); },
       "kid-more-multi": () => { const f = b.closest("form"); const box = f.querySelector(".kids-multi"); const i = box.querySelectorAll(".nk").length; const teams = f.dataset.codes.split(",").map((c) => ({ code: c, name: (S.ui.joinNames || {})[c] || c })); box.insertAdjacentHTML("beforeend", newKidCard(i, teams, S.profile.last_name, false)); box.querySelectorAll(".nk")[i].querySelector("input").focus(); },
+      "ride-more": () => { S.ui.rideOpen = { ...(S.ui.rideOpen || {}), [id]: !(S.ui.rideOpen || {})[id] }; renderTeam(); },
+      "all-rides": () => { S.ui.allRides = { ...(S.ui.allRides || {}), [id]: !(S.ui.allRides || {})[id] }; renderTeam(); },
+      "all-reqs": () => { S.ui.allReqs = { ...(S.ui.allReqs || {}), [id]: !(S.ui.allReqs || {})[id] }; renderTeam(); },
       "kid-new": () => { S.ui.kidEdit = "new"; viewProfile(); },
       "kid-edit": () => { S.ui.kidEdit = id; viewProfile(); },
       "kid-cancel": () => { S.ui.kidEdit = null; viewProfile(); },

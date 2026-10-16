@@ -302,10 +302,10 @@ body.dark .ver{color:var(--navy-muted)}
 .pw-rules .ok{color:#1F8A4C}
 body.dark .card{color:var(--ink)}
 /* chi cerca un passaggio */
-.reqs{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--accent);border-radius:14px;padding:12px 12px 12px 14px;display:grid;gap:10px}
+.reqs{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--amber);border-radius:14px;padding:12px 12px 12px 14px;display:grid;gap:10px}
 .reqs-head{display:flex;align-items:center;gap:8px;color:var(--ink);font-size:.95rem}
 .reqs-head b{flex:1}
-.reqs-n{min-width:24px;height:24px;border-radius:12px;background:var(--accent);color:#fff;font-weight:700;font-size:.8rem;display:inline-flex;align-items:center;justify-content:center;padding:0 7px}
+.reqs-n{min-width:24px;height:24px;border-radius:12px;background:var(--amber);color:#fff;font-weight:700;font-size:.8rem;display:inline-flex;align-items:center;justify-content:center;padding:0 7px}
 .reqs ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .req{display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:10px;padding:10px 12px;flex-wrap:wrap}
 .avatar.sm{width:36px;height:36px;font-size:.8rem;flex:none}
@@ -320,3 +320,24 @@ body.dark .card{color:var(--ink)}
 .kids-multi{display:grid;gap:10px}
 .req .tag,.req .avatar{background:var(--surface)}
 .big-code{font-family:var(--display);font-size:2.2rem;font-weight:700;letter-spacing:.06em;line-height:1.1}
+/* auto offerte: stessa scheda di "Cercano un passaggio", linguetta verde */
+:root{--amber:#E0A21B}
+.offers{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--accent);border-radius:14px;padding:12px 12px 12px 14px;display:grid;gap:10px}
+.offers-n{min-width:24px;height:24px;border-radius:12px;background:var(--accent);color:#fff;font-weight:700;font-size:.8rem;display:inline-flex;align-items:center;justify-content:center;padding:0 7px}
+.offers .ride{border:0;background:var(--bg);border-radius:10px;padding:12px}
+.offers .ride .pax li{background:var(--surface)}
+/* schede compatte di auto e richieste */
+.ride-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ride-top .driver{min-width:0;overflow-wrap:anywhere}
+.offers .ride{gap:6px;padding:10px 12px}
+.offers .ride .meta .btn-link,.ride .meta .btn-link{padding:0;min-height:0;font-size:inherit}
+.btn-sm{min-height:36px;padding:0 14px;font-size:.92rem}
+.req{flex-wrap:nowrap;padding:8px 10px}
+.req-meta{gap:2px 6px;font-size:.8rem}
+.req .tag{font-size:.75rem;padding:0 7px}
+.offers>.btn-link,.reqs>.btn-link{justify-self:start}
+.req-act .btn-ok,.req-act .btn-link{white-space:nowrap}
+.offers .pax{display:flex;flex-wrap:wrap;gap:6px}
+.offers .pax li{padding:3px 10px;border-radius:999px;font-size:.9rem;gap:6px}
+.offers .pax li .btn-link{font-size:.8rem;padding:0;min-height:0}
+.offers .ride .row{gap:10px;align-items:center}
