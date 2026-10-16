@@ -139,6 +139,15 @@
     return fs.map((f, i) => ({ first: String(f).trim(), last: String(ls[i] || "").trim() })).filter((k) => k.first);
   }
   const kidsMissingSurname = (kids) => kids.find((k) => !k.last);
+  // codici d'invito: un codice di gruppo vale per più squadre
+  async function expandCodes(codes) {
+    const out = [];
+    for (const c of codes) {
+      const ex = await sb.rpc("expand_invite", { p_code: c }).then((r) => r.data || [], () => []);
+      if (ex.length) ex.forEach((x) => out.push(String(x.code).toUpperCase())); else out.push(c);
+    }
+    return [...new Set(out)];
+  }
   // finestra di domanda sì/no, sopra la pagina
   function askModal(title, html, yes, no) {
     return new Promise((res) => {
@@ -362,12 +371,12 @@
     $app.innerHTML = hero(step === "welcome") + `<div class="wrap narrow">${body}${privacy}</div>`;
     // nome della squadra dell'invito, visibile anche prima di accedere
     if (step === "email" && invite && !S.ui.inviteName) {
-      const codes = decodeURIComponent(next.slice(7)).split(",").filter(Boolean);
-      Promise.all(codes.map((c) => sb.rpc("preview_invite", { p_code: c }).then((r) => (r.data && r.data[0]) || null, () => null))).then((ts) => {
+      const codes0 = decodeURIComponent(next.slice(7)).split(",").filter(Boolean);
+      expandCodes(codes0).then((codes) => Promise.all(codes.map((c) => sb.rpc("preview_invite", { p_code: c }).then((r) => (r.data && r.data[0]) || null, () => null))).then((ts) => {
         const names = ts.filter(Boolean).map((t) => t.team_name);
         S.ui.inviteName = names.length ? names.join(" e ") : "una squadra";
         const el = document.getElementById("inv-name"); if (el) el.textContent = S.ui.inviteName;
-      });
+      }));
     }
   }
 
@@ -579,10 +588,11 @@
       <div class="small muted">In quali di queste squadre gioca?</div>${joinTeamPills("nt" + i, teams, checked)}</div>`;
   async function viewJoin(code) {
     unsubscribe();
-    const codes = [...new Set(String(code).split(",").map((c) => c.trim().toUpperCase()).filter(Boolean))];
+    let codes = [...new Set(String(code).split(",").map((c) => c.trim().toUpperCase()).filter(Boolean))];
     const bad = () => { $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="empty"><strong>Invito non valido</strong>${ERRORS.invalid_code}</div></div>`; };
     $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="boot">Controllo l'invito…</div></div>`;
     logEvent("invite_open");
+    codes = await expandCodes(codes);
     const prev = await Promise.all(codes.map((c) => sb.rpc("preview_invite", { p_code: c }).then((r) => (r.data && r.data[0]) || null, () => null)));
     try { await loadKidsCtx(); } catch (e) { /* senza figli già inseriti */ }
     const already = new Set((S.myTeams || []).map((t) => String(t.invite_code || "").toUpperCase()));
@@ -1411,8 +1421,28 @@
   // ----- tab invita -----
   // squadre incluse nell'invito: di default quella aperta; l'amministratore di più squadre può aggiungerne
   const inviteTeams = () => { const sel = (S.ui.invSel || []).filter((tid) => adminTeamIds().includes(tid) && teamById(tid)); return sel.length ? sel.map(teamById) : [S.team]; };
-  const inviteUrl = () => location.origin + location.pathname + "#/join/" + inviteTeams().map((t) => t.invite_code).join(",");
-  const inviteText = () => { const ts = inviteTeams(); const names = ts.length === 1 ? ts[0].name : ts.slice(0, -1).map((t) => t.name).join(", ") + " e " + ts[ts.length - 1].name; return `Ciao! Per organizzare i passaggi alle trasferte di ${names} usiamo Carpoolino: entra da qui${ts.length > 1 ? ", scegli le squadre" : ""} e scrivi il nome del tuo atleta. ${inviteUrl()}`; };
+  // con più squadre: un solo codice di gruppo (creato al volo e ricordato)
+  const groupKey = () => inviteTeams().map((t) => t.id).sort().join(",");
+  function inviteCode() {
+    const ts = inviteTeams();
+    if (ts.length === 1) return ts[0].invite_code;
+    const g = (S.ui.grpCodes || {})[groupKey()];
+    if (g) return g;
+    if (!S.ui.grpLoading) {
+      S.ui.grpLoading = true; const key = groupKey();
+      sb.rpc("group_invite", { p_teams: ts.map((t) => t.id) }).then((r) => {
+        S.ui.grpLoading = false;
+        if (r.data) { S.ui.grpCodes = { ...(S.ui.grpCodes || {}), [key]: r.data }; if (currentTab === "invita") renderTeam(); }
+      }, () => { S.ui.grpLoading = false; });
+    }
+    return ts.map((t) => t.invite_code).join(","); // finché il codice di gruppo non è pronto
+  }
+  const inviteUrl = () => location.origin + location.pathname + "#/join/" + inviteCode();
+  const inviteText = () => {
+    const ts = inviteTeams(); const names = ts.length === 1 ? ts[0].name : ts.slice(0, -1).map((t) => t.name).join(", ") + " e " + ts[ts.length - 1].name;
+    const c = inviteCode();
+    return `Ciao! Per organizzare i passaggi alle trasferte di ${names} usiamo Carpoolino. Apri il link e indica ${ts.length > 1 ? "i tuoi figli e le squadre in cui giocano" : "il nome di tuo figlio"}: ${inviteUrl()}${c.includes(",") ? "" : ` (oppure su ${location.host || "carpoolino.it"} scrivi il codice ${c})`}`;
+  };
   function tabInvite() {
     const admin = isAdmin();
     const adm = adminTeamIds();
@@ -1420,10 +1450,12 @@
     const selIds = inviteTeams().map((t) => t.id);
     return `${wizardInvite()}${multiInv ? `<div class="card"><div class="label">Squadre incluse nell'invito</div>
         <div class="pill-group">${adm.map((tid) => `<label class="pill check-pill"><input type="checkbox" data-act="inv-toggle" data-id="${tid}" ${selIds.includes(tid) ? "checked" : ""}> ${esc(teamById(tid).name)}</label>`).join("")}</div>
-        <div class="small muted">Con più squadre il genitore riceve un solo link e sceglie lui in quali entrare: utile per i fratelli.</div></div>` : ""}
+        <div class="small muted">Con più squadre l'app crea un solo codice valido per tutte: il genitore lo usa una volta e indica in quali squadre gioca ciascun figlio.</div></div>` : ""}
       <div class="card">
         <div class="qr" id="qr" role="img" aria-label="QR code dell'invito"></div>
-        <div class="small muted" style="text-align:center">${selIds.length > 1 ? `Inquadra per entrare in ${selIds.length} squadre` : `Inquadra per entrare nella squadra · codice <b>${esc(inviteTeams()[0].invite_code)}</b>`}</div>
+        <div style="text-align:center;display:grid;gap:2px"><div class="small muted">${selIds.length > 1 ? `Codice unico per ${selIds.length} squadre` : "Codice della squadra"}</div>
+          <div class="big-code">${inviteCode().includes(",") ? "…" : esc(inviteCode())}</div>
+          ${selIds.length > 1 ? `<div class="small muted">${esc(inviteTeams().map((t) => t.name).join(" · "))}</div>` : ""}</div>
         <div class="code">${esc(inviteUrl())}</div>
         <div class="row"><button class="btn-ghost" data-act="copy-link">Copia link</button>
           <a class="btn btn-ok" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(inviteText())}">Invia su WhatsApp</a>
@@ -1659,7 +1691,7 @@
       if (act === "toggle-admin") { const m = S.members.find((x) => x.user_id === id); const { error } = await sb.from("team_members").update({ role: m.role === "admin" ? "parent" : "admin" }).eq("team_id", S.team.id).eq("user_id", id); if (error) throw error; }
       if (act === "leave") { const { error } = await sb.rpc("leave_team", { p_team: S.team.id }); if (error) throw error; unsubscribe(); location.hash = "#/"; toast("Hai lasciato la squadra"); return; }
       if (act === "toggle-approval") { const { error } = await sb.from("teams").update({ require_approval: b.checked }).eq("id", S.team.id); if (error) throw error; toast(b.checked ? "Approvazione attiva" : "Approvazione disattivata"); }
-      if (act === "regen") { const { error } = await sb.rpc("regenerate_invite", { p_team: S.team.id }); if (error) throw error; toast("Nuovo invito creato"); }
+      if (act === "regen") { const { error } = await sb.rpc("regenerate_invite", { p_team: S.team.id }); if (error) throw error; S.ui.grpCodes = {}; toast("Nuovo invito creato"); }
       if (act === "veh-toggle") { const v = S.vehicles.find((x) => x.id === id); const { error } = await sb.from("vehicles").update({ active: !v.active }).eq("id", id); if (error) throw error; }
       if (act === "veh-del") { const { error } = await sb.from("vehicles").delete().eq("id", id); if (error) throw error; toast("Mezzo eliminato"); }
       if (act === "del-team") { const { error } = await sb.from("teams").delete().eq("id", S.team.id); if (error) throw error; unsubscribe(); location.hash = "#/"; toast("Squadra eliminata"); return; }
@@ -1782,10 +1814,10 @@
       }
       if (kind === "landing-code") {
         const code = v("code").toUpperCase().replace(/\s+/g, "");
-        const { data } = await sb.rpc("preview_invite", { p_code: code });
-        const t = data && data[0];
-        if (!t) { toast(ERRORS.invalid_code); if (btn) btn.disabled = false; return; }
-        store("it-next", "#/join/" + encodeURIComponent(code)); S.ui.inviteName = t.team_name; S.ui.landing = "email"; viewLogin(); return;
+        const all = await expandCodes([code]);
+        const ts = (await Promise.all(all.map((c) => sb.rpc("preview_invite", { p_code: c }).then((r) => (r.data && r.data[0]) || null, () => null)))).filter(Boolean);
+        if (!ts.length) { toast(ERRORS.invalid_code); if (btn) btn.disabled = false; return; }
+        store("it-next", "#/join/" + encodeURIComponent(code)); S.ui.inviteName = ts.map((t) => t.team_name).join(" e "); S.ui.landing = "email"; viewLogin(); return;
       }
       if (kind === "code-join") { S.ui.codeOpen = false; location.hash = "#/join/" + encodeURIComponent(v("code").toUpperCase().replace(/\s+/g, "")); return; }
       if (kind === "join-any") {

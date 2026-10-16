@@ -302,12 +302,12 @@ body.dark .ver{color:var(--navy-muted)}
 .pw-rules .ok{color:#1F8A4C}
 body.dark .card{color:var(--ink)}
 /* chi cerca un passaggio */
-.reqs{background:var(--warn-soft);border-radius:14px;padding:12px;display:grid;gap:10px}
-.reqs-head{display:flex;align-items:center;gap:8px;color:var(--warn-text);font-size:.95rem}
+.reqs{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--accent);border-radius:14px;padding:12px 12px 12px 14px;display:grid;gap:10px}
+.reqs-head{display:flex;align-items:center;gap:8px;color:var(--ink);font-size:.95rem}
 .reqs-head b{flex:1}
-.reqs-n{min-width:24px;height:24px;border-radius:12px;background:var(--warn-text);color:var(--surface);font-weight:700;font-size:.8rem;display:inline-flex;align-items:center;justify-content:center;padding:0 7px}
+.reqs-n{min-width:24px;height:24px;border-radius:12px;background:var(--accent);color:#fff;font-weight:700;font-size:.8rem;display:inline-flex;align-items:center;justify-content:center;padding:0 7px}
 .reqs ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.req{display:flex;align-items:center;gap:10px;background:var(--surface);border-radius:10px;padding:10px 12px;flex-wrap:wrap}
+.req{display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:10px;padding:10px 12px;flex-wrap:wrap}
 .avatar.sm{width:36px;height:36px;font-size:.8rem;flex:none}
 .req-main{flex:1 1 160px;min-width:0}
 .req-main b{display:block;overflow-wrap:anywhere}
@@ -318,3 +318,5 @@ body.dark .card{color:var(--ink)}
 /* inviti: un riquadro per figlio */
 .kid-card{background:var(--bg);border-radius:12px;padding:12px;display:grid;gap:10px}
 .kids-multi{display:grid;gap:10px}
+.req .tag,.req .avatar{background:var(--surface)}
+.big-code{font-family:var(--display);font-size:2.2rem;font-weight:700;letter-spacing:.06em;line-height:1.1}
