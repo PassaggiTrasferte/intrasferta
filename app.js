@@ -148,19 +148,32 @@
       document.body.appendChild(d); d.querySelector("[data-m=y]").focus();
     });
   }
-  // il ragazzo c'è già in squadra (inserito dall'altro genitore)? Restituisce l'id a cui collegarsi, oppure null
-  async function resolveKid(kid, where) {
-    const { data, error } = await sb.rpc("athlete_matches", { p_first: kid.first, p_last: kid.last, p_team: where.team || null, p_code: where.code || null });
-    if (error || !data || !data.length) return null;
-    const typed = fullName(kid.first, kid.last);
-    for (const m of data) {
-      const by = m.parents ? `L'ha inserito <b>${esc(m.parents)}</b>.` : "";
-      const ok = m.exact
-        ? await askModal(`${esc(m.label)} è già in squadra`, `<p style="margin:0">${by} Sei anche tu un genitore di ${esc(kid.first)}?</p><p class="small muted" style="margin:0">Con «Sì» vedrai e gestirai le sue prenotazioni${m.parents ? `; ${esc(firstName(m.parents))} riceve un avviso` : ""}.</p>`, `Sì, sono un genitore di ${esc(kid.first)}`, "No, è un altro ragazzo")
-        : await askModal(`Intendevi ${esc(m.label)}?`, `<p style="margin:0">Hai scritto <b>${esc(typed)}</b>. In squadra c'è già <b>${esc(m.label)}</b>${m.parents ? `, inserito da ${esc(m.parents)}` : ""}.</p>`, `Sì, è ${esc(m.label)}`, "No, il nome è giusto così");
-      if (ok) return m.id;
+  // il ragazzo c'è già (inserito dall'altro genitore) in una o più delle squadre? Una sola domanda per ragazzo.
+  // wheres: [{ key, team | code, name }] → restituisce { key: id del ragazzo a cui collegarsi }
+  async function resolveKidMulti(kid, wheres) {
+    const found = {};
+    for (const w of wheres) {
+      const { data, error } = await sb.rpc("athlete_matches", { p_first: kid.first, p_last: kid.last, p_team: w.team || null, p_code: w.code || null });
+      if (error || !data) continue;
+      data.forEach((m) => { const k = (m.exact ? "1" : "0") + normN(m.label); (found[k] = found[k] || { label: m.label, parents: m.parents, exact: m.exact, hits: [] }).hits.push({ key: w.key, id: m.id, name: w.name }); });
     }
-    return null;
+    const links = {}, typed = fullName(kid.first, kid.last);
+    for (const g of Object.values(found).sort((a, b) => b.exact - a.exact)) {
+      const hits = g.hits.filter((h) => !(h.key in links)); if (!hits.length) continue;
+      const names = hits.map((h) => `<b>${esc(h.name)}</b>`);
+      const where = names.length > 1 ? names.slice(0, -1).join(", ") + " e " + names[names.length - 1] : names[0];
+      const by = g.parents ? `L'ha inserito <b>${esc(g.parents)}</b>.` : "";
+      const ok = g.exact
+        ? await askModal(`${esc(g.label)} è già in squadra`, `<p style="margin:0">È già in ${where}. ${by} Sei anche tu un genitore di ${esc(kid.first)}?</p><p class="small muted" style="margin:0">Con «Sì» vedrai e gestirai le sue prenotazioni${hits.length > 1 ? (hits.length === 2 ? " in tutte e due le squadre" : " in tutte le squadre") : ""}${g.parents ? `; ${esc(firstName(g.parents))} riceve un avviso` : ""}.</p>`, `Sì, sono un genitore di ${esc(kid.first)}`, "No, è un altro ragazzo")
+        : await askModal(`Intendevi ${esc(g.label)}?`, `<p style="margin:0">Hai scritto <b>${esc(typed)}</b>. In ${where} c'è già <b>${esc(g.label)}</b>${g.parents ? `, inserito da ${esc(g.parents)}` : ""}.</p>`, `Sì, è ${esc(g.label)}`, "No, il nome è giusto così");
+      hits.forEach((h) => { links[h.key] = ok ? h.id : null; });
+    }
+    Object.keys(links).forEach((k) => { if (!links[k]) delete links[k]; });
+    return links;
+  }
+  async function resolveKid(kid, where) {
+    const t = (S.myTeams || []).find((x) => x.id === where.team);
+    return (await resolveKidMulti(kid, [{ ...where, key: "x", name: t ? t.name : "squadra" }])).x || null;
   }
   async function addKids(teamId, kids, links) {
     for (let i = 0; i < kids.length; i++) {
@@ -559,56 +572,57 @@
       </form></div>`;
   }
 
-  // ---------- entrare con invito ----------
+  // ---------- entrare con invito (una o più squadre) ----------
+  // ogni figlio si scrive una volta; chi ha già figli su Carpoolino li spunta
+  const joinTeamPills = (name, teams, checked) => `<div class="pill-group">${teams.map((t) => `<label class="pill check-pill"><input type="checkbox" name="${name}" value="${esc(t.code)}" ${checked ? "checked" : ""}> ${esc(t.name)}</label>`).join("")}</div>`;
+  const newKidCard = (i, teams, last, checked) => `<div class="kid-card nk"><div class="kid-row"><label>Nome<input name="nf${i}" maxlength="40" autocomplete="off"></label><label>Cognome<input name="nl${i}" maxlength="40" autocomplete="off" value="${esc(last || "")}"></label></div>
+      <div class="small muted">In quali di queste squadre gioca?</div>${joinTeamPills("nt" + i, teams, checked)}</div>`;
   async function viewJoin(code) {
     unsubscribe();
     const codes = [...new Set(String(code).split(",").map((c) => c.trim().toUpperCase()).filter(Boolean))];
-    if (codes.length > 1) return viewJoinMulti(codes);
-    $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="boot">Controllo l'invito…</div></div>`;
-    logEvent("invite_open");
-    const { data, error } = await sb.rpc("preview_invite", { p_code: code });
-    const t = data && data[0];
-    if (error || !t) {
-      $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="empty"><strong>Invito non valido</strong>${ERRORS.invalid_code}</div></div>`;
-      return;
-    }
-    $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow">
-      <div class="intro"><div class="label">Ti hanno invitato in</div><h1>${esc(t.team_name)}</h1>
-        <div class="meta">${esc((SPORTS[t.sport] || SPORTS.altro).label)}${t.category ? " · " + esc(t.category) : ""} · ${esc(t.season)}</div></div>
-      <form class="card form" data-form="join" data-code="${esc(code)}">
-        ${kidsBlock("I tuoi figli in " + esc(t.team_name), true)}
-        <p class="full small muted" style="margin:0">Se anche l'altro genitore si registra, basta che scriva lo stesso nome e cognome: vi riconosciamo come genitori dello stesso ragazzo e vedete le stesse prenotazioni.</p>
-        <div class="actions"><button class="btn-primary btn-block" type="submit">Entra nella squadra</button></div>
-        <p class="full small muted" style="margin:0">Gli altri membri della squadra vedranno il tuo nome e quello dei tuoi figli.</p>
-      </form></div>`;
-    const ln = document.querySelector('[data-form="join"] input[name="kl"]'); if (ln && S.profile.last_name) ln.value = S.profile.last_name;
-  }
-
-  async function viewJoinMulti(codes) {
+    const bad = () => { $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="empty"><strong>Invito non valido</strong>${ERRORS.invalid_code}</div></div>`; };
     $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="boot">Controllo l'invito…</div></div>`;
     logEvent("invite_open");
     const prev = await Promise.all(codes.map((c) => sb.rpc("preview_invite", { p_code: c }).then((r) => (r.data && r.data[0]) || null, () => null)));
-    // squadre in cui sei già: confronto con i codici delle tue squadre
-    const { data: mine } = await sb.from("team_members").select("team_id,status").eq("user_id", S.user.id);
-    const myIds = (mine || []).map((m) => m.team_id);
-    const myTeams = myIds.length ? (await sb.from("teams").select("id,invite_code").in("id", myIds)).data || [] : [];
-    const already = new Set(myTeams.map((t) => t.invite_code));
-    const rows = codes.map((c, i) => ({ code: c, t: prev[i], member: already.has(c) }));
-    if (!rows.some((r) => r.t)) { $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="empty"><strong>Invito non valido</strong>${ERRORS.invalid_code}</div></div>`; return; }
-    const open = rows.filter((r) => r.t && !r.member);
-    $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow">
-      <div class="intro"><div class="label">Ti hanno invitato in ${rows.filter((r) => r.t).length} squadre</div>
-        <div class="small muted">Spunta le squadre in cui gioca un tuo figlio e scrivi nome e cognome. Altri figli li aggiungi poi da Profilo › I miei figli.</div></div>
-      <form class="card form" data-form="join-multi">
-        ${rows.map((r) => !r.t ? `<div class="full small muted">Un codice dell'invito non è più valido (${esc(r.code)}).</div>`
-          : r.member ? `<div class="full"><b>${esc(r.t.team_name)}</b> <span class="chip ok">ci sei già</span></div>`
-          : `<div class="full join-row">
-              <label class="check"><input type="checkbox" name="pick" value="${esc(r.code)}" ${open.length === 1 ? "checked" : ""}> <span><b>${esc(r.t.team_name)}</b><span class="small muted"> · ${esc((SPORTS[r.t.sport] || SPORTS.altro).label)}${r.t.category ? " · " + esc(r.t.category) : ""}</span></span></label>
-              ${kidRow("", S.profile.last_name || "", false, "-" + esc(r.code))}
-            </div>`).join("")}
-        ${open.length ? `<div class="actions"><button class="btn-primary btn-block" type="submit">Entra nelle squadre scelte</button></div>
-        <p class="full small muted" style="margin:0">Gli altri membri di ogni squadra vedranno il tuo nome e quello di tuo figlio.</p>` : `<div class="full"><a class="btn btn-primary btn-block" href="#/">Vai alle trasferte</a></div>`}
-      </form></div>`;
+    try { await loadKidsCtx(); } catch (e) { /* senza figli già inseriti */ }
+    const already = new Set((S.myTeams || []).map((t) => String(t.invite_code || "").toUpperCase()));
+    const rows = codes.map((c, i) => ({ code: c, t: prev[i], member: already.has(c) })).filter((r) => r.t);
+    if (!rows.length) return bad();
+    const open = rows.filter((r) => !r.member).map((r) => ({ code: r.code, name: r.t.team_name }));
+    const multi = open.length > 1, one = rows.length === 1 ? rows[0].t : null;
+    const groups = S.myKids ? kidGroups() : [];
+    S.ui.joinGroups = groups.map((g) => ({ first: g.first, last: g.last }));
+    S.ui.joinNames = Object.fromEntries(open.map((t) => [t.code, t.name]));
+    const tname = (tid) => { const t = (S.myTeams || []).find((x) => x.id === tid); return t ? t.name : ""; };
+    const head = one ? `<div class="intro"><div class="label">Ti hanno invitato in</div><h1>${esc(one.team_name)}</h1>
+        <div class="meta">${esc((SPORTS[one.sport] || SPORTS.altro).label)}${one.category ? " · " + esc(one.category) : ""} · ${esc(one.season)}</div></div>`
+      : `<div class="intro"><div class="label">Ti hanno invitato in ${rows.length} squadre</div><h2>${rows.map((r) => esc(r.t.team_name)).join(" · ")}</h2></div>`;
+    const inAlready = rows.filter((r) => r.member).map((r) => `<span class="chip ok">${esc(r.t.team_name)}: ci sei già</span>`).join(" ");
+    let body;
+    if (!open.length) body = `<div class="card"><div>${inAlready}</div><a class="btn btn-primary btn-block" href="#/">Vai alle trasferte</a></div>`;
+    else if (!multi) {
+      const t = open[0];
+      body = `<form class="card form" data-form="join-any" data-codes="${esc(t.code)}">
+        ${inAlready ? `<div class="full">${inAlready}</div>` : ""}
+        ${groups.length ? `<div class="full label">Chi gioca in ${esc(t.name)}?</div>
+          <div class="full pill-group">${groups.map((g, i) => `<label class="pill check-pill"><input type="checkbox" name="ek" value="${i}"> ${esc(fullName(g.first, g.last))}</label>`).join("")}</div>` : ""}
+        <div class="full kids"><div class="${groups.length ? "small muted" : "label"}">${groups.length ? "Un altro figlio?" : "I tuoi figli in " + esc(t.name)}</div>${kidRow("", S.profile.last_name || "", !groups.length)}<div><button type="button" class="btn-link" data-act="kid-more">+ Aggiungi un altro figlio</button></div></div>
+        <p class="full small muted" style="margin:0">Se anche l'altro genitore si registra, basta che scriva lo stesso nome e cognome: vi riconosciamo come genitori dello stesso ragazzo e vedete le stesse prenotazioni.</p>
+        <div class="actions"><button class="btn-primary btn-block" type="submit">Entra nella squadra</button></div>
+      </form>`;
+    } else {
+      body = `<form class="card form" data-form="join-any" data-codes="${esc(open.map((t) => t.code).join(","))}">
+        ${inAlready ? `<div class="full">${inAlready}</div>` : ""}
+        <div class="full label">I tuoi figli</div>
+        ${groups.map((g, i) => `<div class="full kid-card"><div><b>${esc(fullName(g.first, g.last))}</b><div class="small muted">già su Carpoolino${g.recs.length ? " · " + esc(g.recs.map((r) => tname(r.team_id)).filter(Boolean).join(" · ")) : ""}</div></div>
+          <div class="small muted">In quali di queste squadre gioca?</div>${joinTeamPills("ek-" + i, open, false)}</div>`).join("")}
+        <div class="full kids-multi">${newKidCard(0, open, S.profile.last_name, !groups.length)}</div>
+        <div class="full"><button type="button" class="btn-link" data-act="kid-more-multi">+ Aggiungi ${groups.length ? "un altro" : "un altro"} figlio</button></div>
+        <div class="actions"><button class="btn-primary btn-block" type="submit">Entra nelle squadre</button></div>
+        <p class="full small muted" style="margin:0">Entri nelle squadre in cui hai spuntato almeno un figlio. Gli altri membri vedranno il tuo nome e quello dei tuoi figli.</p>
+      </form>`;
+    }
+    $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow">${head}${body}</div>`;
   }
 
   // ---------- profilo ----------
@@ -617,7 +631,7 @@
     await loadMyKids();
     const { data: mem } = await sb.from("team_members").select("team_id,status").eq("user_id", S.user.id);
     const ids = (mem || []).map((m) => m.team_id);
-    const teams = ids.length ? (await sb.from("teams").select("id,name,category").in("id", ids)).data || [] : [];
+    const teams = ids.length ? (await sb.from("teams").select("id,name,category,invite_code").in("id", ids)).data || [] : [];
     S.myTeams = teams.sort((a, b) => a.name.localeCompare(b.name));
     const kidIds = (S.myKids || []).map((k) => k.id);
     const links = kidIds.length ? (await sb.from("athlete_parents").select("athlete_id,user_id").in("athlete_id", kidIds)).data || [] : [];
@@ -1553,6 +1567,7 @@
       "landing-back": () => { if (S.ui.otpPurpose) { S.ui.otpPurpose = null; S.ui.landing = "login"; return viewLogin(); } store("it-next", null); S.ui.landing = "welcome"; S.ui.inviteName = null; viewLogin(); },
       "code-open": () => { S.ui.codeOpen = true; viewHome(); },
       "kid-more": () => { const box = b.closest(".kids"); const rows = box.querySelectorAll(".kid-row"); const last = rows[0]?.querySelector('input[name^="kl"]')?.value || ""; b.parentElement.insertAdjacentHTML("beforebegin", kidRow("", last, false)); box.querySelectorAll(".kid-row")[rows.length].querySelector("input").focus(); },
+      "kid-more-multi": () => { const f = b.closest("form"); const box = f.querySelector(".kids-multi"); const i = box.querySelectorAll(".nk").length; const teams = f.dataset.codes.split(",").map((c) => ({ code: c, name: (S.ui.joinNames || {})[c] || c })); box.insertAdjacentHTML("beforeend", newKidCard(i, teams, S.profile.last_name, false)); box.querySelectorAll(".nk")[i].querySelector("input").focus(); },
       "kid-new": () => { S.ui.kidEdit = "new"; viewProfile(); },
       "kid-edit": () => { S.ui.kidEdit = id; viewProfile(); },
       "kid-cancel": () => { S.ui.kidEdit = null; viewProfile(); },
@@ -1770,35 +1785,43 @@
         store("it-next", "#/join/" + encodeURIComponent(code)); S.ui.inviteName = t.team_name; S.ui.landing = "email"; viewLogin(); return;
       }
       if (kind === "code-join") { S.ui.codeOpen = false; location.hash = "#/join/" + encodeURIComponent(v("code").toUpperCase().replace(/\s+/g, "")); return; }
-      if (kind === "join-multi") {
-        const picks = fd.getAll("pick");
-        if (!picks.length) { toast("Spunta almeno una squadra"); if (btn) btn.disabled = false; return; }
-        const miss = picks.find((c) => { const k = readKids(fd, "-" + c); return !k.length || kidsMissingSurname(k); });
-        if (miss) { toast("Scrivi nome e cognome di tuo figlio per ogni squadra spuntata"); f.elements["kf-" + miss]?.focus(); if (btn) btn.disabled = false; return; }
-        let ok = 0, wait = 0, last = null;
-        for (const c of picks) {
-          const kids = readKids(fd, "-" + c), links = [];
-          for (const k of kids) links.push(await resolveKid(k, { code: c }));
+      if (kind === "join-any") {
+        const codes = f.dataset.codes.split(","), multi = codes.length > 1, G = S.ui.joinGroups || [], names = S.ui.joinNames || {};
+        const stop = (msg, el) => { toast(msg); el?.focus(); if (btn) btn.disabled = false; };
+        const entries = [];
+        if (!multi) {
+          fd.getAll("ek").forEach((i) => G[i] && entries.push({ first: G[i].first, last: G[i].last, codes: [codes[0]] }));
+          const nk = readKids(fd);
+          if (kidsMissingSurname(nk)) return stop("Scrivi anche il cognome di tuo figlio");
+          nk.forEach((k) => entries.push({ ...k, codes: [codes[0]] }));
+        } else {
+          G.forEach((g, i) => { const cs = fd.getAll("ek-" + i); if (cs.length) entries.push({ first: g.first, last: g.last, codes: cs }); });
+          for (let i = 0; f.elements["nf" + i]; i++) {
+            const first = v("nf" + i), last = v("nl" + i); if (!first) continue;
+            if (!last) return stop("Scrivi anche il cognome di " + first, f.elements["nl" + i]);
+            const cs = fd.getAll("nt" + i); if (!cs.length) return stop("Spunta le squadre in cui gioca " + first);
+            entries.push({ first, last, codes: cs });
+          }
+        }
+        if (!entries.length) return stop(multi ? "Indica almeno un figlio e le squadre in cui gioca" : "Indica almeno un figlio");
+        for (const e of entries) e.links = await resolveKidMulti(e, e.codes.map((c) => ({ key: c, code: c, name: names[c] || c })));
+        const used = codes.filter((c) => entries.some((e) => e.codes.includes(c)));
+        let ok = 0, wait = 0, last = null; const tid = {};
+        for (const c of used) {
           const { data, error } = await sb.rpc("join_team", { p_code: c, p_athletes: "" });
           if (error) { toast(errMsg(error)); continue; }
           const r = data && data[0]; if (!r) continue;
-          try { await addKids(r.team_id, kids, links); } catch (e) { toast(errMsg(e)); }
-          if (r.status === "pending") wait++; else { ok++; last = r.team_id; }
+          tid[c] = r.team_id; if (r.status === "pending") wait++; else { ok++; last = r.team_id; }
         }
-        toast(ok && wait ? `Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}; ${wait} in attesa di approvazione` : ok ? `Benvenuto! Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}` : wait ? "Richiesta inviata: attendi l'approvazione" : "Nessuna squadra aggiunta");
+        for (const e of entries) for (const c of e.codes) if (tid[c]) {
+          const { error } = await sb.rpc("add_athlete", { p_team: tid[c], p_first: e.first, p_last: e.last, p_link: e.links[c] || null });
+          if (error) toast(errMsg(error));
+        }
+        await loadMyKids(); S.myTeams = null;
         if (last) store("it-last-team", last);
+        if (!multi) { if (wait) { toast("Richiesta inviata: attendi l'approvazione"); location.hash = "#/"; } else if (last) { toast("Benvenuto in squadra!"); location.hash = "#/t/" + last + "/trasferte"; } return; }
+        toast(ok && wait ? `Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}; ${wait} in attesa di approvazione` : ok ? `Benvenuto! Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}` : wait ? "Richiesta inviata: attendi l'approvazione" : "Nessuna squadra aggiunta");
         location.hash = "#/"; return;
-      }
-      if (kind === "join") {
-        const kids = readKids(fd);
-        if (!kids.length || kidsMissingSurname(kids)) { toast("Scrivi nome e cognome di tuo figlio"); if (btn) btn.disabled = false; return; }
-        const links = []; for (const k of kids) links.push(await resolveKid(k, { code: f.dataset.code }));
-        const { data, error } = await sb.rpc("join_team", { p_code: f.dataset.code, p_athletes: "" }); if (error) throw error;
-        const r = data && data[0];
-        await addKids(r.team_id, kids, links); await loadMyKids();
-        if (r && r.status === "pending") { toast("Richiesta inviata: attendi l'approvazione"); location.hash = "#/"; }
-        else { toast("Benvenuto in squadra!"); location.hash = "#/t/" + r.team_id + "/trasferte"; }
-        return;
       }
       if (kind === "new-team") {
         const kids = readKids(fd);

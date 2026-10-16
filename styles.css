@@ -315,3 +315,6 @@ body.dark .card{color:var(--ink)}
 .tag{background:var(--bg);border-radius:999px;padding:1px 9px;font-size:.8rem;color:var(--ink)}
 .req-act{display:flex;gap:8px;align-items:center;margin-left:auto}
 .req-act .btn-link{white-space:nowrap}
+/* inviti: un riquadro per figlio */
+.kid-card{background:var(--bg);border-radius:12px;padding:12px;display:grid;gap:10px}
+.kids-multi{display:grid;gap:10px}
