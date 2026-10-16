@@ -440,3 +440,6 @@ body.dark .who{color:var(--navy-ink)}
 .onb-btn-sm{padding:11px;font-size:1rem;margin-top:4px}
 .onb-switch input{width:46px!important;height:28px!important;min-height:0!important;border:0!important;padding:0!important;border-radius:999px!important;box-shadow:none!important}
 .onb-card-ico{font-size:1.15rem;letter-spacing:-2px}
+.onb-btn-top{margin-top:6px}
+.onb-help{margin-top:18px!important}
+.onb .onb-group input:not([type=checkbox]),.onb .onb-group input:not([type=checkbox]):focus{background:transparent!important;border:0!important;box-shadow:none!important;padding:6px 0!important;border-radius:0!important}

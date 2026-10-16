@@ -422,10 +422,10 @@
         <p class="onb-sub">Bentornato! Entra con la tua email e la password.</p>
         <label class="onb-group"><input type="email" name="email" required autocomplete="email" placeholder="La tua email" value="${esc(S.ui.lastEmail || "")}"></label>
         <label class="onb-group pw-wrap"><input type="password" name="password" required maxlength="72" autocomplete="current-password" placeholder="Password"><button type="button" class="btn-link pw-eye" data-act="pw-show">Mostra</button></label>
+        <button class="onb-btn onb-btn-top" type="submit">Entra</button>
         <div class="onb-group onb-help"><b>Non hai ancora una password o non la ricordi?</b>
           <p>Ti mandiamo un codice alla tua email: lo inserisci e scegli la password.</p>
           <button type="button" class="onb-btn onb-btn-light onb-btn-sm" data-act="pw-send-code">Mandami un codice</button></div>
-        <div class="onb-foot"><button class="onb-btn" type="submit">Entra</button></div>
       </form>`,
     loading: () => `<section class="onb"><div class="onb-mid"><div class="boot">Controllo l'invito…</div></div></section>`,
     welcome: () => `<section class="onb">
