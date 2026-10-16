@@ -26,19 +26,22 @@
   const mapsSearch = (q) => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
   const mapsRoute = (from, to) => "https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=" + encodeURIComponent(from) + "&destination=" + encodeURIComponent(to);
   const telOk = (t) => !t || waNum(t).length >= 10;
-  async function geocode(q) {
-    const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=it&q=" + encodeURIComponent(q));
+  async function geocode(q, near) {
+    // entro ~250 km dalla destinazione e in Italia: evita omonimi lontani ("parcheggio", "piazza Roma"…)
+    const vb = near ? `&bounded=1&viewbox=${near[0] - 2.5},${near[1] + 2.5},${near[0] + 2.5},${near[1] - 2.5}` : "";
+    const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=it&countrycodes=it" + vb + "&q=" + encodeURIComponent(q));
     const j = await r.json(); return j && j[0] ? [Number(j[0].lon), Number(j[0].lat)] : null;
   }
   async function estimateKm(from, to) {
     if (!from || !to) return null;
     try {
-      const a = await geocode(from); if (!a) return null;
-      await new Promise((res) => setTimeout(res, 1100)); // limite di cortesia del servizio di geocodifica
       const b = await geocode(to); if (!b) return null;
+      await new Promise((res) => setTimeout(res, 1100)); // limite di cortesia del servizio di geocodifica
+      const a = await geocode(from, b); if (!a) return null;
       const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${a[0]},${a[1]};${b[0]},${b[1]}?overview=false`);
       const j = await r.json(); const m = j && j.routes && j.routes[0] && j.routes[0].distance;
-      return m ? Math.round(m / 100) / 10 : null;
+      const km = m ? Math.round(m / 100) / 10 : null;
+      return km != null && km <= 300 ? km : null; // oltre 300 km è quasi certamente un indirizzo frainteso
     } catch (e) { return null; }
   }
 
@@ -1240,8 +1243,6 @@
           </div>
           <div class="row">${chips}${reqs.length ? `<span class="chip warn">${reqs.length === 1 ? "1 cerca un passaggio" : reqs.length + " cercano un passaggio"}</span>` : ""}</div>
         </div>
-        ${rides.length ? `<div class="offers"><div class="reqs-head"><span aria-hidden="true">🚗</span><b>Offrono un passaggio</b><span class="offers-n">${rides.length}</span></div>${(rides.length > 3 && !(S.ui.allRides || {})[e.id] ? rides.slice(0, 3) : rides).map((r) => rideBlock(r, e, isPast)).join("")}${rides.length > 3 ? `<button class="btn-link" data-act="all-rides" data-id="${e.id}">${(S.ui.allRides || {})[e.id] ? "Mostra meno" : `Mostra altri ${rides.length - 3} mezzi`}</button>` : ""}</div>` : ""}
-        ${!isPast && reqs.length ? reqBox(e, reqs) : ""}
         ${!isPast ? `<div class="row noprint">
           ${S.ui.offer === e.id ? "" : `<button class="btn-ghost" data-act="offer" data-id="${e.id}">🚗 Offro un passaggio</button>`}
           ${S.ui.req === e.id ? "" : `<button class="btn-ghost" data-act="req" data-id="${e.id}">🙋 Cerco un passaggio</button>`}
@@ -1250,6 +1251,8 @@
         ${S.ui.offer === e.id ? offerForm(e) : ""}
         ${S.ui.req === e.id ? reqForm(e) : ""}
         ${S.ui.club === e.id ? clubForm(e) : ""}
+        ${rides.length ? `<div class="offers"><div class="reqs-head"><span aria-hidden="true">🚗</span><b>Offrono un passaggio</b><span class="offers-n">${rides.length}</span></div>${(rides.length > 3 && !(S.ui.allRides || {})[e.id] ? rides.slice(0, 3) : rides).map((r) => rideBlock(r, e, isPast)).join("")}${rides.length > 3 ? `<button class="btn-link" data-act="all-rides" data-id="${e.id}">${(S.ui.allRides || {})[e.id] ? "Mostra meno" : `Mostra altri ${rides.length - 3} mezzi`}</button>` : ""}</div>` : ""}
+        ${!isPast && reqs.length ? reqBox(e, reqs) : ""}
         ${canEditEvent(e) ? `<div class="row noprint">${confirming
           ? `<span class="confirm">Eliminare la trasferta con tutti i passaggi? <button class="btn-link danger" data-act="del-event" data-id="${e.id}">Sì, elimina</button><button class="btn-link" data-act="cancel">Annulla</button></span>`
           : `<button class="btn-link" data-act="edit-event" data-id="${e.id}">Modifica</button><button class="btn-link" data-act="ask-del-event" data-id="${e.id}">Elimina</button>`}</div>` : ""}
