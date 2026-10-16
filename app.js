@@ -1,4 +1,4 @@
-/* Carpoolino · webapp (beta)
+/* CarPoolino · webapp (beta)
    Nessun build: HTML + JS + Supabase. Tutti i testi degli utenti passano da esc(). */
 (function () {
   "use strict";
@@ -70,6 +70,10 @@
     "only request this after": "Attendi qualche secondo prima di chiedere un nuovo codice.",
     "Token has expired or is invalid": "Codice non valido o scaduto.",
     "Signups not allowed for otp": "Non c'è un account con questa email. Torna indietro e scegli «Entra nella squadra» o «Registra la tua squadra».",
+    invite_used: "Questo invito è già stato usato. Chiedi all'altro genitore di mandartene uno nuovo.",
+    invite_expired: "Questo invito è scaduto. Chiedi all'altro genitore di mandartene uno nuovo.",
+    invite_not_found: "Invito non valido.",
+    invite_self: "Questo è un invito che hai creato tu: mandalo all'altro genitore.",
     athlete_name_required: "Scrivi il nome del ragazzo.",
     too_many_athletes: "Hai già inserito molti ragazzi in questa squadra."
   };
@@ -195,11 +199,53 @@
     const t = (S.myTeams || []).find((x) => x.id === where.team);
     return (await resolveKidMulti(kid, [{ ...where, key: "x", name: t ? t.name : "squadra" }])).x || null;
   }
+  // ---------- invita l'altro genitore ----------
+  // crea il link e mostra la finestra con WhatsApp; ids = schede dei ragazzi (anche di più squadre)
+  async function inviteParent(ids, names, intro) {
+    const { data: tok, error } = await sb.rpc("create_kid_invite", { p_athletes: ids });
+    if (error) { toast(errMsg(error)); return; }
+    const url = location.origin + location.pathname + "#/genitore/" + tok;
+    const who = names.length > 1 ? names.slice(0, -1).join(", ") + " e " + names[names.length - 1] : names[0];
+    const text = `Ciao! Ho inserito ${who} su CarPoolino per organizzare i passaggi alle trasferte. Apri questo link e registrati: vedrai e potrai gestire anche tu le sue prenotazioni. ${url}`;
+    document.querySelector(".modal-back.inv")?.remove();
+    const d = document.createElement("div"); d.className = "modal-back inv";
+    d.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><h2>Invita l'altro genitore</h2>
+      <p style="margin:0">${intro ? esc(intro) + " " : ""}Manda all'altro genitore di <b>${esc(who)}</b> questo link: si registra e viene collegato da solo, senza scrivere nomi.</p>
+      <p class="small muted" style="margin:0">Il link vale 14 giorni e una sola volta.</p>
+      <div style="display:grid;gap:8px"><a class="btn btn-ok btn-block" target="_blank" rel="noopener" href="${esc(waHref("", text))}" data-m="x">Invia su WhatsApp</a>
+        <button type="button" class="btn-ghost btn-block" data-m="copy">Copia il link</button>
+        <button type="button" class="btn-link" data-m="x">Più tardi</button></div></div>`;
+    d.addEventListener("click", (e) => { const b = e.target.closest("[data-m]"); if (!b) return; if (b.dataset.m === "copy") { copy(url); return; } setTimeout(() => d.remove(), 50); });
+    document.body.appendChild(d);
+  }
+  // pagina che apre chi riceve il link
+  async function viewKidInvite(token) {
+    unsubscribe();
+    $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="boot">Controllo l'invito…</div></div>`;
+    const { data } = await sb.rpc("preview_kid_invite", { p_token: token });
+    const k = data && data[0];
+    if (!k) { $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow"><div class="empty"><strong>Invito non valido</strong>${ERRORS.invite_not_found}</div></div>`; return; }
+    $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow">
+      <div class="intro"><div class="label">${esc(k.inviter)} ti ha invitato come genitore di</div><h1>${esc(k.kids)}</h1><div class="meta">${esc(k.teams || "")}</div></div>
+      <div class="card">
+        ${k.valid ? `<p style="margin:0">Entrerai nella squadra e vedrai le stesse trasferte e prenotazioni di ${esc(firstName(k.inviter))}. Potrai offrire passaggi e prenotare posti per ${esc(firstName(k.kids))}.</p>
+          <button class="btn-primary btn-block" data-act="kid-accept" data-id="${esc(token)}">Accetta</button>`
+        : `<p style="margin:0">${ERRORS.invite_used}</p>`}
+      </div></div>`;
+  }
   async function addKids(teamId, kids, links) {
     for (let i = 0; i < kids.length; i++) {
-      const { error } = await sb.rpc("add_athlete", { p_team: teamId, p_first: kids[i].first, p_last: kids[i].last, p_link: links[i] || null });
+      const { data, error } = await sb.rpc("add_athlete", { p_team: teamId, p_first: kids[i].first, p_last: kids[i].last, p_link: links[i] || null });
       if (error) throw error;
+      if (!links[i] && data && data.id) (S.newKidIds = S.newKidIds || []).push({ id: data.id, name: kids[i].first });
     }
+  }
+  // dopo aver inserito figli nuovi (non collegati a un altro genitore): proponi subito l'invito
+  function offerParentInvite() {
+    const list = S.newKidIds || []; S.newKidIds = [];
+    if (!list.length) return;
+    const names = [...new Set(list.map((x) => x.name))];
+    setTimeout(() => inviteParent(list.map((x) => x.id), names, "Fatto!"), 600);
   }
 
   // ---------- consensi ----------
@@ -228,19 +274,19 @@
   function viewConsents() {
     const updated = S.consents && S.consents.terms && S.consents.terms.version !== TERMS_VERSION;
     const open = S.ui.legalOpen;
-    $app.innerHTML = `<div class="hero"><div class="in"><h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg" alt="Carpoolino" class="wordmark"></h1></div></div>
+    $app.innerHTML = `<div class="hero"><div class="in"><h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg?v=cp2" alt="CarPoolino" class="wordmark"></h1></div></div>
       <div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="cons-title">
         <img src="icon.svg" alt="" width="56" height="56" class="modal-icon">
         <h2 id="cons-title">${updated ? "Abbiamo aggiornato i Termini" : "Prima di iniziare, due cose importanti"}</h2>
         ${open ? `<div class="legal-box">${LEGAL[open].html}</div><button class="btn-ghost" data-act="legal-close">← Torna al riepilogo</button>` : `
-        <div class="cons-item"><span aria-hidden="true">🤝</span><div><b>Carpoolino mette in contatto le famiglie, non organizza i viaggi.</b> I passaggi sono accordi gratuiti tra genitori: chi guida è responsabile del proprio viaggio.</div></div>
+        <div class="cons-item"><span aria-hidden="true">🤝</span><div><b>CarPoolino mette in contatto le famiglie, non organizza i viaggi.</b> I passaggi sono accordi gratuiti tra genitori: chi guida è responsabile del proprio viaggio.</div></div>
         <div class="cons-item"><span aria-hidden="true">🚗</span><div><b>Chi offre un passaggio deve poter trasportare i ragazzi in sicurezza:</b> patente valida, auto assicurata e revisionata, rispetto del codice della strada, cinture o seggiolini per tutti, non più passeggeri dei posti omologati.</div></div>
         <div class="cons-item"><span aria-hidden="true">🔒</span><div><b>I tuoi dati restano qui.</b> Nome, cellulare e nome dei tuoi figli li vedono solo le tue squadre. Niente pubblicità profilata, nessun dato ceduto a terzi, nessuna posizione in tempo reale.</div></div>`}
         <form class="form" data-form="consents">
           <label class="full check"><input type="checkbox" name="terms" required ${hasConsent("terms") && !updated ? "checked" : ""}> <span>Ho letto e accetto i <button type="button" class="btn-link" data-act="legal-open" data-v="termini">Termini d'uso</button> e l'<button type="button" class="btn-link" data-act="legal-open" data-v="privacy">Informativa privacy</button> <small class="muted">(obbligatorio)</small></span></label>
           <label class="full check"><input type="checkbox" name="parent" required ${hasConsent("parent") ? "checked" : ""}> <span>Sono il genitore, o chi ne fa le veci, degli atleti che inserirò <small class="muted">(obbligatorio)</small></span></label>
           <div class="full label" style="margin-top:4px">Facoltativi</div>
-          <label class="full check switch"><input type="checkbox" name="news" ${hasConsent("news") ? "checked" : ""}> <span>Ricevere via email novità e consigli d'uso di Carpoolino</span></label>
+          <label class="full check switch"><input type="checkbox" name="news" ${hasConsent("news") ? "checked" : ""}> <span>Ricevere via email novità e consigli d'uso di CarPoolino</span></label>
           <label class="full check switch"><input type="checkbox" name="stats" ${hasConsent("stats") ? "checked" : ""}> <span>Statistiche d'uso anonime per migliorare l'app</span></label>
           <div class="actions"><button class="btn-primary btn-block" type="submit">Continua</button></div>
         </form>
@@ -253,10 +299,10 @@
   const LEGAL = {
     termini: { title: "Termini d'uso", html: `
       <p class="muted">Versione ${TERMS_VERSION} · aggiornati il ${LEGAL_UPDATED}. Gestore del servizio: &lt;titolare&gt;.</p>
-      <h3>1. Cos'è Carpoolino</h3>
-      <p>Carpoolino è uno strumento online che aiuta i genitori e le società sportive a coordinare i passaggi in auto verso trasferte, partite e allenamenti. Carpoolino <b>mette in contatto le famiglie ma non organizza, non effettua e non intermedia trasporti</b>: non è un vettore, un'agenzia né un servizio di noleggio con conducente.</p>
+      <h3>1. Cos'è CarPoolino</h3>
+      <p>CarPoolino è uno strumento online che aiuta i genitori e le società sportive a coordinare i passaggi in auto verso trasferte, partite e allenamenti. CarPoolino <b>mette in contatto le famiglie ma non organizza, non effettua e non intermedia trasporti</b>: non è un vettore, un'agenzia né un servizio di noleggio con conducente.</p>
       <h3>2. Passaggi di cortesia, gratuiti</h3>
-      <p>I passaggi pubblicati sono accordi liberi e <b>gratuiti</b> tra privati (trasporto di cortesia). Carpoolino non gestisce pagamenti e vieta di chiedere o offrire compensi per i passaggi. Ogni eventuale accordo diverso riguarda solo le persone coinvolte.</p>
+      <p>I passaggi pubblicati sono accordi liberi e <b>gratuiti</b> tra privati (trasporto di cortesia). CarPoolino non gestisce pagamenti e vieta di chiedere o offrire compensi per i passaggi. Ogni eventuale accordo diverso riguarda solo le persone coinvolte.</p>
       <h3>3. Chi guida</h3>
       <p>Chi offre un passaggio dichiara, e garantisce per tutta la durata del viaggio, di:</p>
       <ul><li>avere una patente valida e non sospesa, ed essere in condizioni idonee alla guida;</li>
@@ -267,9 +313,9 @@
       <h3>4. Genitori e accompagnatori</h3>
       <p>Il genitore, o chi esercita la responsabilità genitoriale, decide liberamente se affidare il proprio figlio a un altro conducente e se accettare un passaggio. È sua cura verificare che le condizioni del viaggio siano adeguate.</p>
       <h3>5. Società sportive e mezzi della società</h3>
-      <p>La società che usa Carpoolino resta responsabile dei propri mezzi, dei propri autisti e delle proprie coperture assicurative. Carpoolino non sostituisce le polizze della società né quelle dei singoli conducenti.</p>
+      <p>La società che usa CarPoolino resta responsabile dei propri mezzi, dei propri autisti e delle proprie coperture assicurative. CarPoolino non sostituisce le polizze della società né quelle dei singoli conducenti.</p>
       <h3>6. Limitazione di responsabilità</h3>
-      <p>Nei limiti consentiti dalla legge, il gestore di Carpoolino non risponde di sinistri, danni a persone o cose, ritardi, mancati passaggi o comportamenti degli utenti durante i viaggi, che restano regolati dai rapporti tra le persone coinvolte e dalle rispettive assicurazioni. Restano ferme le responsabilità che la legge non consente di escludere.</p>
+      <p>Nei limiti consentiti dalla legge, il gestore di CarPoolino non risponde di sinistri, danni a persone o cose, ritardi, mancati passaggi o comportamenti degli utenti durante i viaggi, che restano regolati dai rapporti tra le persone coinvolte e dalle rispettive assicurazioni. Restano ferme le responsabilità che la legge non consente di escludere.</p>
       <h3>7. Uso corretto</h3>
       <p>Inserisci solo dati veri e che hai il diritto di condividere, non usare l'app per scopi diversi dal coordinamento dei passaggi e rispetta gli altri membri della squadra. Gli amministratori possono rimuovere chi non rispetta queste regole.</p>
       <h3>8. Servizio e modifiche</h3>
@@ -319,10 +365,11 @@
   function viewLogin(nextHash) {
     if (nextHash) store("it-next", nextHash);
     const next = store("it-next") || "";
-    const invite = next.startsWith("#/join/");
+    const kidInv = next.startsWith("#/genitore/");
+    const invite = next.startsWith("#/join/") || kidInv;
     const step = S.ui.loginEmail ? "otp" : (invite || next === "#/new") && !S.ui.landing ? "email" : (S.ui.landing || "welcome");
     const hero = (big) => `<div class="hero"><div class="in">
-        <h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg" alt="Carpoolino" class="wordmark"></h1>
+        <h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg?v=cp2" alt="CarPoolino" class="wordmark"></h1>
         <p style="font-size:1.2rem;margin:0">Le trasferte della squadra, organizzate in un minuto.</p>
       </div></div>`;
     const privacy = `<p class="small muted" style="text-align:center"><a href="#/termini">Termini d'uso</a> · <a href="#/privacy">Informativa privacy</a> · Nessuna pubblicità profilata, nessun dato ceduto a terzi.</p>`;
@@ -364,7 +411,7 @@
       const help = purpose === "reset" ? "Ti mandiamo un codice di 6 cifre: lo inserisci e scegli una nuova password."
         : purpose === "login" ? "Ti mandiamo un codice di 6 cifre per entrare senza password."
         : "Ti mandiamo un codice di 6 cifre per verificare che l'email sia tua. Subito dopo scegli la password.";
-      body = `${invite ? `<div class="intro"><div class="label">Sei stato invitato in</div><h2 id="inv-name">${esc(S.ui.inviteName || "…")}</h2><div class="small muted">Inserisci la tua email per entrare nella squadra.</div></div>` : ""}
+      body = `${invite ? `<div class="intro"><div class="label">${kidInv ? "Sei stato invitato come genitore" : "Sei stato invitato in"}</div><h2 id="inv-name">${esc(S.ui.inviteName || "…")}</h2><div class="small muted">Inserisci la tua email per entrare nella squadra.</div></div>` : ""}
         <form class="card form" data-form="login-email">
           ${title ? `<h2 class="full">${title}</h2>` : ""}
           <label class="full">La tua email<input type="email" name="email" required autocomplete="email" placeholder="nome@esempio.it" value="${esc(S.ui.lastEmail || "")}"></label>
@@ -384,7 +431,13 @@
     document.body.classList.add("dark");
     $app.innerHTML = hero(step === "welcome") + `<div class="wrap narrow">${body}${privacy}</div>`;
     // nome della squadra dell'invito, visibile anche prima di accedere
-    if (step === "email" && invite && !S.ui.inviteName) {
+    if (step === "email" && kidInv && !S.ui.inviteName) {
+      sb.rpc("preview_kid_invite", { p_token: decodeURIComponent(next.slice(11)) }).then((r) => {
+        const k = r.data && r.data[0];
+        S.ui.inviteName = k ? `di ${k.kids}${k.teams ? " · " + k.teams : ""}` : "di tuo figlio";
+        const el = document.getElementById("inv-name"); if (el) el.textContent = S.ui.inviteName;
+      }, () => {});
+    } else if (step === "email" && invite && !S.ui.inviteName) {
       const codes0 = decodeURIComponent(next.slice(7)).split(",").filter(Boolean);
       expandCodes(codes0).then((codes) => Promise.all(codes.map((c) => sb.rpc("preview_invite", { p_code: c }).then((r) => (r.data && r.data[0]) || null, () => null))).then((ts) => {
         const names = ts.filter(Boolean).map((t) => t.team_name);
@@ -403,10 +456,10 @@
   function viewSetPassword() {
     const reset = store("it-forcepw") === "1";
     document.body.classList.add("dark");
-    $app.innerHTML = `<div class="hero"><div class="in"><h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg" alt="Carpoolino" class="wordmark"></h1></div></div>
+    $app.innerHTML = `<div class="hero"><div class="in"><h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg?v=cp2" alt="CarPoolino" class="wordmark"></h1></div></div>
       <div class="wrap narrow"><form class="card form" data-form="set-pw">
         <h2 class="full">${reset ? "Scegli la nuova password" : "Scegli la tua password"}</h2>
-        <p class="full muted" style="margin:0">${reset ? "Da ora entrerai" : "La userai per entrare in Carpoolino"} con <b>${esc(S.user.email || "")}</b>.</p>
+        <p class="full muted" style="margin:0">${reset ? "Da ora entrerai" : "La userai per entrare in CarPoolino"} con <b>${esc(S.user.email || "")}</b>.</p>
         ${pwField("pw1", reset ? "Nuova password" : "Password", "new-password", "Almeno 8 caratteri, con lettere e numeri.")}
         ${pwField("pw2", "Ripeti la password")}
         ${pwRules()}
@@ -499,7 +552,8 @@
     const parts = hash.slice(2).split("/");
     if (parts[0] === "join" && parts[1]) return viewJoin(decodeURIComponent(parts[1]));
     if (parts[0] === "new") return viewNewTeam();
-    if (parts[0] === "squadre") return viewHome(true);
+    if (parts[0] === "squadre") { location.replace("#/"); return; }
+    if (parts[0] === "genitore" && parts[1]) return viewKidInvite(decodeURIComponent(parts[1]));
     if (parts[0] === "profilo") return viewProfile(true);
     if (parts[0] === "admin") return viewAdmin();
     if (parts[0] === "t" && parts[1]) return viewTeam(parts[1], parts[2] || "trasferte");
@@ -509,7 +563,7 @@
   function topBar({ title, sub, back, backLabel, tabs, active, teamId }) {
     return `<header class="top"><div class="in">
       ${back ? `<a class="iconbtn" href="${back}" aria-label="${esc(backLabel || "Indietro")}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></a>` : ""}
-      <a class="brand" href="#/" aria-label="Carpoolino, home"><img src="icon.svg" alt="" width="38" height="38"><img src="logo.svg" alt="" class="wordmark"></a>
+      <a class="brand" href="#/" aria-label="CarPoolino, home"><img src="icon.svg" alt="" width="38" height="38"><img src="logo.svg?v=cp2" alt="" class="wordmark"></a>
       <div class="grow"></div>
       <a class="iconbtn ring" href="#/profilo" aria-label="Profilo">${esc(initials(S.profile?.display_name))}</a>
     </div>
@@ -523,8 +577,8 @@
   // versione letta dall'indirizzo di app.js in index.html (es. app.js?v=20261015-3)
   const APP_VERSION = ((document.querySelector('script[src*="app.js"]') || {}).src || "").split("v=")[1] || "";
   // riga della versione, fissa in fondo a tutte le pagine (fuori dall'area che si ridisegna)
-  { const ver = document.getElementById("ver"); if (ver) ver.textContent = "Carpoolino" + (APP_VERSION ? " · versione " + APP_VERSION : ""); }
-  const footer = () => `<footer class="foot">Carpoolino beta · solo coordinamento tra famiglie, nessun pagamento · <a href="#/termini">Termini</a> · <a href="#/privacy">Privacy</a> · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
+  { const ver = document.getElementById("ver"); if (ver) ver.textContent = "CarPoolino" + (APP_VERSION ? " · versione " + APP_VERSION : ""); }
+  const footer = () => `<footer class="foot">CarPoolino beta · solo coordinamento tra famiglie, nessun pagamento · <a href="#/termini">Termini</a> · <a href="#/privacy">Privacy</a> · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
 
   // ---------- home: le mie squadre ----------
   async function viewHome(stay) {
@@ -535,7 +589,7 @@
     if (error) return toast(errMsg(error));
     S.memberships = mems || [];
     const ids = S.memberships.filter((m) => m.status === "active").map((m) => m.team_id);
-    if (!stay && ids.length) { const last = store("it-last-team"); location.replace("#/t/" + (ids.includes(last) ? last : ids[0]) + "/trasferte"); return; }
+    if (ids.length) { const last = store("it-last-team"); location.replace("#/t/" + (ids.includes(last) ? last : ids[0]) + "/trasferte"); return; }
     let teams = [], events = [], rides = [], bookings = [];
     if (ids.length) {
       teams = (await sb.from("teams").select("*").in("id", ids)).data || [];
@@ -564,7 +618,7 @@
     $app.innerHTML = topBar({}) + `<div class="wrap">
       <div><div class="muted">Ciao ${esc(S.profile.display_name.split(",")[0])}</div><h1>Le mie squadre</h1></div>
       ${pending.length ? `<div class="notice">Hai ${pending.length} richiest${pending.length === 1 ? "a" : "e"} in attesa di approvazione da parte dell'amministratore.</div>` : ""}
-      ${cards || `<div class="intro"><h2>Benvenuto in Carpoolino</h2><div class="muted">Non sei ancora in nessuna squadra. Cosa vuoi fare?</div></div>`}
+      ${cards || `<div class="intro"><h2>Benvenuto in CarPoolino</h2><div class="muted">Non sei ancora in nessuna squadra. Cosa vuoi fare?</div></div>`}
       ${!cards && !S.ui.codeOpen ? `<button class="choice" data-act="code-open"><b>Entra nella squadra di tuo figlio</b><span>Scrivi il codice che ti ha dato l'allenatore, oppure apri il link ricevuto</span></button>
         <a class="choice" href="#/new"><b>Registra la tua squadra</b><span>Per allenatori e dirigenti: crei la squadra e inviti i genitori</span></a>` : ""}
       <div class="stack">
@@ -581,7 +635,7 @@
     unsubscribe();
     if (!S.memberships) { const { data } = await sb.from("team_members").select("team_id, role, status, athletes").eq("user_id", S.user.id); S.memberships = data || []; }
     const sp = S.ui.newSport || "basket", L = SPORTS[sp];
-    $app.innerHTML = topBar({ title: "Registra la squadra", back: S.memberships.length ? "#/squadre" : "" }) + `<div class="wrap">
+    $app.innerHTML = topBar({ title: "Registra la squadra", back: S.memberships.length ? "#/profilo" : "" }) + `<div class="wrap">
       ${wizardSteps(1)}
       <form class="card form" data-form="new-team">
         <div class="full stack" style="gap:8px"><div class="label">Sport</div>
@@ -593,13 +647,13 @@
         <div class="full intro"><div class="label">Così vedranno le pagine i genitori</div>
           <div class="small">Luogo: <b>${esc(L.place)}</b> · Orario: <b>${esc(L.time)}</b> · Evento: <b>${esc(L.event)}</b></div></div>
         <label class="full check declare"><input name="role-ok" type="checkbox" required> <span>Sono l'allenatore o un dirigente di questa squadra e accetto i <a href="#/termini" target="_blank">Termini</a> per le società: mezzi, autisti e coperture assicurative della società restano sotto la sua responsabilità.</span></label>
-        <p class="full small muted" style="margin:0">Diventerai l'amministratore: aggiungi le trasferte e inviti i genitori. Se tuo figlio è già in una squadra su Carpoolino, non crearne un'altra: chiedi il link all'allenatore.</p>
+        <p class="full small muted" style="margin:0">Diventerai l'amministratore: aggiungi le trasferte e inviti i genitori. Se tuo figlio è già in una squadra su CarPoolino, non crearne un'altra: chiedi il link all'allenatore.</p>
         <div class="actions"><button class="btn-primary btn-block" type="submit">Crea la squadra e continua</button></div>
       </form></div>`;
   }
 
   // ---------- entrare con invito (una o più squadre) ----------
-  // ogni figlio si scrive una volta; chi ha già figli su Carpoolino li spunta
+  // ogni figlio si scrive una volta; chi ha già figli su CarPoolino li spunta
   const joinTeamPills = (name, teams, checked) => `<div class="pill-group">${teams.map((t) => `<label class="pill check-pill"><input type="checkbox" name="${name}" value="${esc(t.code)}" ${checked ? "checked" : ""}> ${esc(t.name)}</label>`).join("")}</div>`;
   const newKidCard = (i, teams, last, checked) => `<div class="kid-card nk"><div class="kid-row"><label>Nome<input name="nf${i}" maxlength="40" autocomplete="off"></label><label>Cognome<input name="nl${i}" maxlength="40" autocomplete="off" value="${esc(last || "")}"></label></div>
       <div class="small muted">In quali di queste squadre gioca?</div>${joinTeamPills("nt" + i, teams, checked)}</div>`;
@@ -641,7 +695,7 @@
       body = `<form class="card form" data-form="join-any" data-codes="${esc(open.map((t) => t.code).join(","))}">
         ${inAlready ? `<div class="full">${inAlready}</div>` : ""}
         <div class="full label">I tuoi figli</div>
-        ${groups.map((g, i) => `<div class="full kid-card"><div><b>${esc(fullName(g.first, g.last))}</b><div class="small muted">già su Carpoolino${g.recs.length ? " · " + esc(g.recs.map((r) => tname(r.team_id)).filter(Boolean).join(" · ")) : ""}</div></div>
+        ${groups.map((g, i) => `<div class="full kid-card"><div><b>${esc(fullName(g.first, g.last))}</b><div class="small muted">già su CarPoolino${g.recs.length ? " · " + esc(g.recs.map((r) => tname(r.team_id)).filter(Boolean).join(" · ")) : ""}</div></div>
           <div class="small muted">In quali di queste squadre gioca?</div>${joinTeamPills("ek-" + i, open, false)}</div>`).join("")}
         <div class="full kids-multi">${newKidCard(0, open, S.profile.last_name, !groups.length)}</div>
         <div class="full"><button type="button" class="btn-link" data-act="kid-more-multi">+ Aggiungi ${groups.length ? "un altro" : "un altro"} figlio</button></div>
@@ -692,7 +746,7 @@
           <div style="flex:1;min-width:0"><b>${esc(fullName(gr.first, gr.last))}</b>
             <div class="small muted">${esc(gr.recs.map((r) => tname(r.team_id)).join(" · "))}</div>
             <div class="small muted">Genitori: ${esc([...new Set(gr.recs.flatMap((r) => (S.kidParents || {})[r.id] || []))].join(", "))}</div></div>
-          ${ed ? "" : `<button class="btn-link" data-act="kid-edit" data-id="${esc(gr.key)}">Modifica</button>`}</div>
+          ${ed ? "" : `<div style="display:grid;justify-items:end;gap:4px"><button class="btn-link" data-act="kid-edit" data-id="${esc(gr.key)}">Modifica</button>${[...new Set(gr.recs.flatMap((r) => (S.kidParents || {})[r.id] || []))].length < 2 ? `<button class="btn-link" data-act="kid-invite" data-id="${esc(gr.key)}">Invita l'altro genitore</button>` : ""}</div>`}</div>
           ${ed === gr.key ? form(gr) : ""}`).join("") : `<div class="small muted">Nessun figlio indicato.</div>`}
       ${ed === "new" ? form(null) : ""}
     </div>`;
@@ -712,11 +766,15 @@
       </form>
       ${kidsCard()}
       ${securityCard()}
+      <div class="card"><div class="label">Altre squadre</div>
+        ${S.ui.codeOpen ? `<form class="form" data-form="code-join"><label class="full">Codice d'invito<input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="Es. OLI-7K4M2"></label><div class="actions"><button class="btn-primary" type="submit">Continua</button><button class="btn-ghost" type="button" data-act="code-close-p">Annulla</button></div></form>`
+          : `<div><button class="btn-ghost" data-act="code-open-p">Ho un codice d'invito</button></div>`}
+        <div class="small muted">Sei un allenatore o un dirigente? <a href="#/new">Registra una squadra</a></div></div>
       <a class="btn btn-ghost btn-block" href="#/">← Torna alle trasferte</a>
       ${S.platformAdmin ? `<a class="btn btn-primary btn-block" href="#/admin">Pannello di amministrazione</a>` : ""}
       ${privacyCard()}
       <div class="card small">
-        ${S.ui.confirmLogout ? `<div><b>Vuoi uscire da Carpoolino su questo dispositivo?</b></div>
+        ${S.ui.confirmLogout ? `<div><b>Vuoi uscire da CarPoolino su questo dispositivo?</b></div>
           <div class="muted">Per rientrare dovrai inserire di nuovo la tua email e il codice che ti arriva.</div>
           <div class="row"><button class="btn-link danger" data-act="logout">Sì, esci</button><button class="btn-link" data-act="logout-cancel">No, resta collegato</button></div>`
         : `<div class="muted">Resti collegato su questo dispositivo finché non esci.</div><div><button class="btn-link danger" data-act="logout-ask">Esci dall'account</button></div>`}
@@ -977,7 +1035,7 @@
     // sezione da amministratore aperta su una squadra dove non lo sei: passa a una tua squadra
     if (ADMIN_TABS.includes(currentTab) && !isAdmin()) { const a = adminTeamIds()[0]; if (a) { location.replace("#/t/" + a + "/" + currentTab); return; } currentTab = "trasferte"; }
     if (currentTab === "sponsor" && !premium()) { const a = adminTeamIds().find((tid) => premium(S.teamsById[tid])); if (a && a !== t.id) { location.replace("#/t/" + a + "/sponsor"); return; } }
-    const head = topBar({ back: "#/squadre", backLabel: "Le mie squadre", tabs, active: currentTab, teamId: t.id });
+    const head = topBar({ tabs, active: currentTab, teamId: t.id });
     const fn = { trasferte: tabTrips, membri: tabMembers, invita: tabInvite, risparmio: tabSavings, mezzi: tabVehicles, report: tabReport, sponsor: tabSponsors, impostazioni: tabSettings }[currentTab];
     // trasferte e risparmio mostrano tutte le squadre; le altre sezioni solo la squadra aperta
     const body = currentTab === "trasferte" || currentTab === "risparmio" ? fn() : teamSwitch() + withTeam(t.id, fn);
@@ -1022,11 +1080,18 @@
   function tabTrips() {
     const L = sportOf(S.team);
     const cut = Date.now(); // dall'ora di inizio la trasferta passa tra quelle passate
-    const up = S.events.filter((e) => new Date(e.starts_at).getTime() >= cut);
-    const past = S.events.filter((e) => new Date(e.starts_at).getTime() < cut).reverse();
+    // filtro per categoria (solo con più squadre): ricordato su questo telefono
+    const tids = S.multi && S.teamOrder ? S.teamOrder.slice().sort((a, b) => teamById(a).name.localeCompare(teamById(b).name)) : [];
+    let sel = store("it-cat"); if (sel && !tids.includes(sel)) sel = null;
+    const evs = sel ? S.events.filter((e) => e.team_id === sel) : S.events;
+    const up = evs.filter((e) => new Date(e.starts_at).getTime() >= cut);
+    const past = evs.filter((e) => new Date(e.starts_at).getTime() < cut).reverse();
     const admin = isAdmin();
+    const catBar = tids.length > 1 ? `<div class="pill-group cat-bar noprint" role="radiogroup" aria-label="Categoria">
+        <button class="pill" role="radio" aria-checked="${!sel}" data-act="cat-filter" data-v="">Tutte</button>
+        ${tids.map((tid) => `<button class="pill" role="radio" aria-checked="${sel === tid}" data-act="cat-filter" data-v="${tid}" title="${esc(teamById(tid).name)}">${esc(teamById(tid).category || teamById(tid).name)}</button>`).join("")}</div>` : "";
     return `
-      ${noticeCards()}${wizardTrips()}${firstSteps()}${parentTips()}
+      ${noticeCards()}${wizardTrips()}${firstSteps()}${parentTips()}${catBar}
       ${adminTeamIds().length && wizStep() !== 2 ? `<div class="row noprint">
         ${S.ui.newEvent ? "" : `<button class="btn-primary" data-act="new-event">+ Aggiungi trasferta</button>`}
         ${adminTeamIds().some((tid) => premium(teamById(tid))) ? `<button class="btn-ghost" data-act="ai-open">Importa calendario con l'AI</button>` : ""}
@@ -1212,7 +1277,7 @@
   function tabSponsors() {
     if (!S.teamSponsorsLoaded) return `<div class="boot">Carico gli sponsor…</div>`;
     const editing = S.ui.spEdit === "new" ? null : (S.teamSponsors || []).find((x) => x.id === S.ui.spEdit);
-    return `<div class="notice small">Gli sponsor della società compaiono solo ai membri di questa squadra, a rotazione nel banner in cima alla pagina Trasferte. Puoi inserirne fino a 10. Finché ne hai almeno uno attivo, sostituiscono quelli di Carpoolino.</div>
+    return `<div class="notice small">Gli sponsor della società compaiono solo ai membri di questa squadra, a rotazione nel banner in cima alla pagina Trasferte. Puoi inserirne fino a 10. Finché ne hai almeno uno attivo, sostituiscono quelli di CarPoolino.</div>
       ${S.ui.spEdit ? sponsorForm(editing, "team") : `<button class="btn-primary" data-act="sp-new">+ Aggiungi sponsor</button>`}
       <div class="card"><div class="label">Sponsor della squadra · ${(S.teamSponsors || []).length}</div>${sponsorList(S.teamSponsors || [], S.teamSponsorStats, "team")}</div>`;
   }
@@ -1459,7 +1524,7 @@
   const inviteText = () => {
     const ts = inviteTeams(); const names = ts.length === 1 ? ts[0].name : ts.slice(0, -1).map((t) => t.name).join(", ") + " e " + ts[ts.length - 1].name;
     const c = inviteCode();
-    return `Ciao! Per organizzare i passaggi alle trasferte di ${names} usiamo Carpoolino. Apri il link e indica ${ts.length > 1 ? "i tuoi figli e le squadre in cui giocano" : "il nome di tuo figlio"}: ${inviteUrl()}${c.includes(",") ? "" : ` (oppure su ${location.host || "carpoolino.it"} scrivi il codice ${c})`}`;
+    return `Ciao! Per organizzare i passaggi alle trasferte di ${names} usiamo CarPoolino. Apri il link e indica ${ts.length > 1 ? "i tuoi figli e le squadre in cui giocano" : "il nome di tuo figlio"}: ${inviteUrl()}${c.includes(",") ? "" : ` (oppure su ${location.host || "carpoolino.it"} scrivi il codice ${c})`}`;
   };
   function tabInvite() {
     const admin = isAdmin();
@@ -1623,6 +1688,10 @@
       "ride-more": () => { S.ui.rideOpen = { ...(S.ui.rideOpen || {}), [id]: !(S.ui.rideOpen || {})[id] }; renderTeam(); },
       "all-rides": () => { S.ui.allRides = { ...(S.ui.allRides || {}), [id]: !(S.ui.allRides || {})[id] }; renderTeam(); },
       "all-reqs": () => { S.ui.allReqs = { ...(S.ui.allReqs || {}), [id]: !(S.ui.allReqs || {})[id] }; renderTeam(); },
+      "code-open-p": () => { S.ui.codeOpen = true; viewProfile(); },
+      "code-close-p": () => { S.ui.codeOpen = false; viewProfile(); },
+      "kid-invite": () => { const gr = kidGroups().find((g) => g.key === id); if (gr) inviteParent(gr.recs.map((r) => r.id), [gr.first]); },
+      "cat-filter": () => { store("it-cat", b.dataset.v || null); renderTeam(); },
       "kid-new": () => { S.ui.kidEdit = "new"; viewProfile(); },
       "kid-edit": () => { S.ui.kidEdit = id; viewProfile(); },
       "kid-cancel": () => { S.ui.kidEdit = null; viewProfile(); },
@@ -1666,9 +1735,14 @@
       if (act === "del-account") {
         const { error } = await sb.rpc("delete_my_account"); if (error) throw error;
         S.ui = {}; try { localStorage.clear(); } catch (e) {}
-        await sb.auth.signOut(); S.profile = null; location.hash = "#/"; toast("Account eliminato. Grazie per aver usato Carpoolino."); return;
+        await sb.auth.signOut(); S.profile = null; location.hash = "#/"; toast("Account eliminato. Grazie per aver usato CarPoolino."); return;
       }
       if (act === "logout") { S.ui.confirmLogout = false; await sb.auth.signOut(); S.profile = null; location.hash = "#/"; return; }
+      if (act === "kid-accept") {
+        const { data, error } = await sb.rpc("accept_kid_invite", { p_token: id }); if (error) throw error;
+        await loadMyKids(); S.myTeams = null; const t = data && data[0] && data[0].tid;
+        toast("Benvenuto! Ora sei collegato come genitore"); if (t) store("it-last-team", t); location.hash = t ? "#/t/" + t + "/trasferte" : "#/"; return;
+      }
       if (act === "unotice-ok") { const { error } = await sb.rpc("user_notice_seen", { p_id: Number(id) }); if (error) throw error; await reloadTeam(); return; }
       if (act === "notice-ok" || act === "notice-unlink") {
         const n = (S.notices || []).find((x) => String(x.id) === String(id));
@@ -1691,7 +1765,7 @@
         const r = S.rides.find((x) => x.id === id), e = r && S.events.find((x) => x.id === r.event_id);
         const pax = S.bookings.filter((x) => x.ride_id === id && x.booked_by !== S.user.id);
         const { error } = await sb.from("rides").delete().eq("id", id); if (error) throw error; toast("Mezzo ritirato");
-        if (e && pax.length) { const L = tripLabel(e); S.ui.wa = pax.map((bk) => { const m = member(bk.booked_by); return { to: firstName(m.name), phone: m.phone, text: `Ciao ${firstName(m.name)}, purtroppo non posso più accompagnare ${bk.athlete_name} a ${L.trip} (${L.d}): il posto è di nuovo libero su Carpoolino.` }; }); }
+        if (e && pax.length) { const L = tripLabel(e); S.ui.wa = pax.map((bk) => { const m = member(bk.booked_by); return { to: firstName(m.name), phone: m.phone, text: `Ciao ${firstName(m.name)}, purtroppo non posso più accompagnare ${bk.athlete_name} a ${L.trip} (${L.d}): il posto è di nuovo libero su CarPoolino.` }; }); }
       }
       if (act === "take") {
         const q = S.requests.find((x) => x.id === id), e = q && S.events.find((x) => x.id === q.event_id);
@@ -1825,7 +1899,7 @@
           const link = await resolveKid(kid, { team: tid });
           await addKids(tid, [kid], [link]);
         }
-        S.ui.kidEdit = null; toast(gr && !want.length ? "Tolto" : "Salvato"); await loadKidsCtx(); viewProfile(); return;
+        S.ui.kidEdit = null; toast(gr && !want.length ? "Tolto" : "Salvato"); await loadKidsCtx(); viewProfile(); offerParentInvite(); return;
       }
       if (kind === "consents") {
         if (!fd.get("terms") || !fd.get("parent")) { toast("Per continuare servono le due spunte obbligatorie"); if (btn) btn.disabled = false; return; }
@@ -1846,12 +1920,12 @@
         const stop = (msg, el) => { toast(msg); el?.focus(); if (btn) btn.disabled = false; };
         const entries = [];
         if (!multi) {
-          fd.getAll("ek").forEach((i) => G[i] && entries.push({ first: G[i].first, last: G[i].last, codes: [codes[0]] }));
+          fd.getAll("ek").forEach((i) => G[i] && entries.push({ first: G[i].first, last: G[i].last, codes: [codes[0]], existing: true }));
           const nk = readKids(fd);
           if (kidsMissingSurname(nk)) return stop("Scrivi anche il cognome di tuo figlio");
           nk.forEach((k) => entries.push({ ...k, codes: [codes[0]] }));
         } else {
-          G.forEach((g, i) => { const cs = fd.getAll("ek-" + i); if (cs.length) entries.push({ first: g.first, last: g.last, codes: cs }); });
+          G.forEach((g, i) => { const cs = fd.getAll("ek-" + i); if (cs.length) entries.push({ first: g.first, last: g.last, codes: cs, existing: true }); });
           for (let i = 0; f.elements["nf" + i]; i++) {
             const first = v("nf" + i), last = v("nl" + i); if (!first) continue;
             if (!last) return stop("Scrivi anche il cognome di " + first, f.elements["nl" + i]);
@@ -1870,11 +1944,13 @@
           tid[c] = r.team_id; if (r.status === "pending") wait++; else { ok++; last = r.team_id; }
         }
         for (const e of entries) for (const c of e.codes) if (tid[c]) {
-          const { error } = await sb.rpc("add_athlete", { p_team: tid[c], p_first: e.first, p_last: e.last, p_link: e.links[c] || null });
+          const { data: na, error } = await sb.rpc("add_athlete", { p_team: tid[c], p_first: e.first, p_last: e.last, p_link: e.links[c] || null });
           if (error) toast(errMsg(error));
+          else if (!e.links[c] && na && na.id && !e.existing) (S.newKidIds = S.newKidIds || []).push({ id: na.id, name: e.first });
         }
         await loadMyKids(); S.myTeams = null;
         if (last) store("it-last-team", last);
+        offerParentInvite();
         if (!multi) { if (wait) { toast("Richiesta inviata: attendi l'approvazione"); location.hash = "#/"; } else if (last) { toast("Benvenuto in squadra!"); location.hash = "#/t/" + last + "/trasferte"; } return; }
         toast(ok && wait ? `Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}; ${wait} in attesa di approvazione` : ok ? `Benvenuto! Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}` : wait ? "Richiesta inviata: attendi l'approvazione" : "Nessuna squadra aggiunta");
         location.hash = "#/"; return;
@@ -1884,7 +1960,7 @@
         if (kidsMissingSurname(kids)) { toast("Scrivi anche il cognome di tuo figlio"); if (btn) btn.disabled = false; return; }
         const { data, error } = await sb.rpc("create_team", { p_name: v("name"), p_sport: S.ui.newSport || "basket", p_category: v("category"), p_season: v("season"), p_athletes: "" });
         if (error) throw error;
-        try { await addKids(data.id, kids, []); await loadMyKids(); } catch (e) { toast(errMsg(e)); }
+        try { await addKids(data.id, kids, []); await loadMyKids(); offerParentInvite(); } catch (e) { toast(errMsg(e)); }
         S.ui.newSport = null; try { await saveConsent("club", true, data.id); } catch (e) { /* registro facoltativo */ } store("it-wizard-" + data.id, "2"); store("it-last-team", data.id); toast("Squadra creata"); location.hash = "#/t/" + data.id + "/trasferte"; return;
       }
       if (kind === "event") {

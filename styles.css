@@ -152,7 +152,7 @@ footer.foot{text-align:center;color:var(--muted);font-size:.82rem;padding:8px 16
 .pax .row button, .pax .row .btn-link { white-space: nowrap; }
 .wa-card .btn-ok { text-decoration: none; }
 
-/* logo Carpoolino */
+/* logo CarPoolino */
 .brand img{display:block}
 .brand .wordmark{height:22px;width:auto}
 .hero-logo{display:flex;align-items:center;gap:14px;margin:0}
