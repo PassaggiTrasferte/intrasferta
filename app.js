@@ -116,7 +116,15 @@
 
   async function ensureProfile() {
     if (S.profile) return S.profile;
-    S.user = (await sb.auth.getUser()).data.user;
+    const gu = await sb.auth.getUser();
+    S.user = gu.data && gu.data.user;
+    // sessione rimasta in memoria di un account che non esiste più (o scaduta): si esce e si torna all'accesso
+    if (!S.user) {
+      try { await sb.auth.signOut({ scope: "local" }); } catch (e) { /* già fuori */ }
+      try { Object.keys(localStorage).filter((k) => k.startsWith("sb-")).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* memoria non disponibile */ }
+      S.session = null; S.profile = null;
+      throw new Error("session_gone");
+    }
     const { data } = await sb.from("profiles").select("*").eq("id", S.user.id).maybeSingle();
     S.profile = data || { id: S.user.id, display_name: "", phone: "" };
     try { S.platformAdmin = (await sb.rpc("is_platform_admin")).data === true; } catch (e) { S.platformAdmin = false; }
@@ -473,7 +481,10 @@
     const p0 = hash.slice(2).split("/")[0];
     if (p0 === "termini" || p0 === "privacy") return viewLegal(p0);
     if (!S.session) return viewLogin(hash !== "#/" ? hash : null);
-    try { await ensureProfile(); } catch (e) { toast(errMsg(e)); }
+    try { await ensureProfile(); } catch (e) {
+      if (!S.session) { toast("Accedi di nuovo"); return viewLogin(); }
+      toast(errMsg(e));
+    }
     if (!pwSet() || store("it-forcepw") === "1") return viewSetPassword();
     if (!consentsOk()) return viewConsents();
     if (!S.profile?.display_name) return viewName();
