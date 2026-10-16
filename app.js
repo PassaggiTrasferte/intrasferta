@@ -360,6 +360,188 @@
 
 
 
+  // ---------- onboarding (prima dell'accesso): schermate a tutta pagina ----------
+  // pendente in memoria del telefono: squadre dell'invito e figli (it-pend), dati dell'account (it-acct)
+  const pendGet = (k) => { try { return JSON.parse(store(k) || "null"); } catch (e) { return null; } };
+  const pendSet = (k, o) => store(k, o ? JSON.stringify(o) : null);
+  async function loadInvitePend(code) {
+    code = String(code || "").toUpperCase().replace(/\s+/g, "");
+    const all = await expandCodes([code]);
+    const ts = await Promise.all(all.map((c) => sb.rpc("preview_invite", { p_code: c }).then((r) => (r.data && r.data[0]) ? { code: c, name: r.data[0].team_name } : null, () => null)));
+    const teams = ts.filter(Boolean);
+    if (!teams.length) return false;
+    const old = pendGet("it-pend");
+    pendSet("it-pend", { code, teams, kids: old && old.code === code ? old.kids : [] });
+    return true;
+  }
+  const onbBack = (act) => `<button type="button" class="onb-back" data-act="${act}" aria-label="Indietro"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>`;
+  const onbLegal = `<p class="onb-legal">Continuando accetti i <a href="#/termini" target="_blank">Termini</a> e l'<a href="#/privacy" target="_blank">Informativa privacy</a></p>`;
+  const onbTeams = (p) => `<div class="onb-chips">${(p.teams || []).map((t) => `<span class="onb-chip">${esc(t.name)}</span>`).join("")}</div>`;
+  const onbKid = (i, k, teams) => `<div class="onb-group onb-kid" data-i="${i}">
+      <label class="onb-line"><span>Nome</span><input name="kf${i}" maxlength="40" autocomplete="off" value="${esc(k.first || "")}" placeholder="Nome"></label>
+      <label class="onb-line"><span>Cognome</span><input name="kl${i}" maxlength="40" autocomplete="off" value="${esc(k.last || "")}" placeholder="Cognome"></label>
+      ${teams.length > 1 ? `<div class="onb-line onb-plays"><span>Gioca in</span><div class="onb-pills">${teams.map((t) => `<label class="onb-pill"><input type="checkbox" name="kt${i}" value="${esc(t.code)}" ${!k.codes || k.codes.includes(t.code) ? "checked" : ""}><span>${esc(t.name)}</span></label>`).join("")}</div></div>` : ""}
+      ${i > 0 ? `<button type="button" class="btn-link onb-kid-del" data-act="onb-kid-del" data-i="${i}">Togli</button>` : ""}
+    </div>`;
+  const ONB = {
+    kidinv: () => {
+      const k = S.ui.kidInv || {};
+      return `<section class="onb">
+        <div class="onb-logo"><img src="logo.svg?v=cp2" alt="CarPoolino"></div>
+        <div class="onb-mid onb-center">
+          <p class="onb-sub onb-center" style="margin:0">${esc(k.inviter || "Un genitore")} ti ha invitato come genitore di</p>
+          <h1 class="onb-h onb-center">${esc(k.kids || "")}</h1>
+          ${k.teams ? `<div class="onb-chips">${String(k.teams).split(", ").map((t) => `<span class="onb-chip">${esc(t)}</span>`).join("")}</div>` : ""}
+          <p class="onb-note onb-center">Vedrai le stesse trasferte e prenotazioni di ${esc(firstName(k.inviter) || "chi ti ha invitato")}, senza scrivere nomi.</p>
+        </div>
+        <div class="onb-foot">
+          <button class="onb-btn" data-act="onb-signup">Crea il tuo account</button>
+          <p class="onb-small">Hai già un account? <button class="btn-link" data-act="landing-login">Accedi</button></p>
+          ${onbLegal}
+        </div>
+      </section>`;
+    },
+    kidbad: () => {
+      const k = S.ui.kidInv;
+      return `<section class="onb">
+        <div class="onb-logo"><img src="logo.svg?v=cp2" alt="CarPoolino"></div>
+        <div class="onb-mid onb-center">
+          <div class="onb-bad" aria-hidden="true">⏳</div>
+          <h1 class="onb-h onb-center">${k ? "Invito non più valido" : "Invito non trovato"}</h1>
+          <p class="onb-sub onb-center">${k ? `Questo link è già stato usato oppure è scaduto (vale 14 giorni e una volta sola). Chiedi a ${esc(firstName(k.inviter) || "chi te l'ha mandato")} di mandartene uno nuovo da Profilo › I miei figli.` : "Il link non è corretto. Chiedi all'altro genitore di mandartene uno nuovo."}</p>
+        </div>
+        <div class="onb-foot">
+          <p class="onb-small">Hai già un account? <button class="btn-link" data-act="landing-login">Accedi</button></p>
+          <button class="onb-btn onb-btn-light" data-act="landing-back">Torna all'inizio</button>
+        </div>
+      </section>`;
+    },
+    login: () => `<form class="onb" data-form="login-pw">
+        ${onbBack("onb-login-back")}
+        <h1 class="onb-h">Accedi</h1>
+        <p class="onb-sub">Bentornato! Entra con la tua email e la password.</p>
+        <label class="onb-group"><input type="email" name="email" required autocomplete="email" placeholder="La tua email" value="${esc(S.ui.lastEmail || "")}"></label>
+        <label class="onb-group pw-wrap"><input type="password" name="password" required maxlength="72" autocomplete="current-password" placeholder="Password"><button type="button" class="btn-link pw-eye" data-act="pw-show">Mostra</button></label>
+        <div class="onb-group onb-help"><b>Non hai ancora una password o non la ricordi?</b>
+          <p>Ti mandiamo un codice alla tua email: lo inserisci e scegli la password.</p>
+          <button type="button" class="onb-btn onb-btn-light onb-btn-sm" data-act="pw-send-code">Mandami un codice</button></div>
+        <div class="onb-foot"><button class="onb-btn" type="submit">Entra</button></div>
+      </form>`,
+    loading: () => `<section class="onb"><div class="onb-mid"><div class="boot">Controllo l'invito…</div></div></section>`,
+    welcome: () => `<section class="onb">
+        <div class="onb-logo"><img src="logo.svg?v=cp2" alt="CarPoolino"></div>
+        <h1 class="onb-h onb-center">Chi sei?</h1>
+        <div class="onb-cards">
+          <button class="onb-card" data-act="landing-join"><span class="onb-card-ico" aria-hidden="true">🚗🙋</span><span><b>Sono un genitore</b><small>Ho ricevuto un invito o un codice dalla squadra di mio figlio</small></span><i aria-hidden="true">›</i></button>
+          <button class="onb-card" data-act="landing-create"><span class="onb-card-ico" aria-hidden="true">🏀⚽🏐</span><span><b>Sono una società o un allenatore</b><small>Registro la squadra e invito i genitori</small></span><i aria-hidden="true">›</i></button>
+          <button class="onb-card" data-act="landing-login"><span class="onb-card-ico" aria-hidden="true">🔑</span><span><b>Accedi</b><small>Ho già un account CarPoolino</small></span><i aria-hidden="true">›</i></button>
+        </div>
+        <div class="onb-foot">${onbLegal}</div>
+      </section>`,
+    code: () => `<form class="onb" data-form="landing-code">
+        ${onbBack("landing-back")}
+        <h1 class="onb-h">Entra nella squadra</h1>
+        <p class="onb-sub">Scrivi il codice che hai ricevuto dall'allenatore o da un altro genitore.</p>
+        <label class="onb-group onb-big"><span>Codice d'invito</span><input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="OLI-7K4M2"></label>
+        <p class="onb-note">Hai ricevuto il link su WhatsApp? Aprilo: il codice è già dentro.</p>
+        <div class="onb-foot"><button class="onb-btn" type="submit">Avanti</button></div>
+      </form>`,
+    kids: () => {
+      const p = pendGet("it-pend") || { teams: [], kids: [] };
+      const kids = p.kids && p.kids.length ? p.kids : [{ first: "", last: "" }];
+      return `<form class="onb" data-form="onb-kids">
+        ${onbBack("onb-to-code")}
+        <h1 class="onb-h">Ti hanno invitato in</h1>
+        ${onbTeams(p)}
+        <div class="onb-label">I tuoi figli</div>
+        <div class="onb-kids">${kids.map((k, i) => onbKid(i, k, p.teams)).join("")}</div>
+        <button type="button" class="onb-add" data-act="onb-kid-add">+ Aggiungi un altro figlio</button>
+        <p class="onb-note">Se l'altro genitore si registra con lo stesso nome e cognome del ragazzo, vi colleghiamo e vedete le stesse prenotazioni.</p>
+        <div class="onb-foot"><button class="onb-btn" type="submit">Avanti</button></div>
+      </form>`;
+    },
+    almost: () => {
+      const p = pendGet("it-pend") || { teams: [] };
+      return `<section class="onb">
+        ${onbBack("onb-to-kids")}
+        <div class="onb-mid onb-center">
+          ${onbTeams(p)}
+          <img src="icon.svg" alt="" width="132" height="132" class="onb-hero-icon">
+          <h1 class="onb-h onb-center">Ottimo!<br>Hai quasi finito…</h1>
+          <p class="onb-sub onb-center">Ti manca solo il tuo account personale. Ci vuole un minuto.</p>
+        </div>
+        <div class="onb-foot">
+          <button class="onb-btn onb-btn-light" data-act="onb-signup">Crea il tuo account</button>
+          <p class="onb-small">Hai già un account? <button class="btn-link" data-act="landing-login">Accedi</button></p>
+        </div>
+      </section>`;
+    },
+    signup: () => {
+      const a = pendGet("it-acct") || {}, nx = store("it-next") || "", club = nx === "#/new", kid = nx.startsWith("#/genitore/");
+      return `<form class="onb" data-form="onb-signup">
+        ${onbBack(club ? "landing-back" : kid ? "onb-to-kidinv" : "onb-to-almost")}
+        <h1 class="onb-h">Crea account</h1>
+        <p class="onb-sub">${club ? "Poi registri la tua squadra e inviti i genitori." : "Così gli altri genitori della squadra ti riconoscono."}</p>
+        <div class="onb-row"><label class="onb-group"><input name="first" required maxlength="40" autocomplete="given-name" placeholder="Nome" value="${esc(a.first || "")}"></label>
+          <label class="onb-group"><input name="last" required maxlength="40" autocomplete="family-name" placeholder="Cognome" value="${esc(a.last || "")}"></label></div>
+        <label class="onb-group"><input type="email" name="email" required autocomplete="email" placeholder="La tua email" value="${esc(a.email || S.ui.lastEmail || "")}"></label>
+        <label class="onb-group pw-wrap"><input type="password" name="pw1" required minlength="8" maxlength="72" autocomplete="new-password" placeholder="Scegli una password"><button type="button" class="btn-link pw-eye" data-act="pw-show">Mostra</button></label>
+        <div class="onb-rules pw-rules"><span data-r="len">○ almeno 8 caratteri</span> <span data-r="mix">○ lettere e numeri</span></div>
+        <label class="onb-check"><input type="checkbox" name="terms" required ${a.terms ? "checked" : ""}><span>Accetto i <a href="#/termini" target="_blank">Termini d'uso</a> e l'<a href="#/privacy" target="_blank">Informativa privacy</a></span></label>
+        <label class="onb-check"><input type="checkbox" name="parent" required ${a.parent ? "checked" : ""}><span>Sono il genitore, o chi ne fa le veci, dei ragazzi che inserisco</span></label>
+        <label class="onb-switch"><input type="checkbox" name="news" ${a.news ? "checked" : ""}><span>Novità e consigli d'uso via email</span></label>
+        <label class="onb-switch"><input type="checkbox" name="stats" ${a.stats ? "checked" : ""}><span>Statistiche d'uso anonime</span></label>
+        <div class="onb-foot"><button class="onb-btn" type="submit">Avanti</button>
+          <p class="onb-small">Hai già un account? <button type="button" class="btn-link" data-act="landing-login">Accedi</button></p></div>
+      </form>`;
+    },
+    verify: () => {
+      const a = pendGet("it-acct") || {};
+      return `<form class="onb" data-form="onb-verify">
+        ${onbBack("onb-signup")}
+        <div class="onb-center onb-verify">
+          <p>Il codice di verifica è stato inviato a</p>
+          <p class="onb-mail">${esc(a.email || "")}</p>
+          <input class="onb-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" maxlength="8" required placeholder="______" aria-label="Codice di verifica">
+        </div>
+        <div class="onb-foot"><button class="onb-btn" type="submit">Avanti</button>
+          <p class="onb-small">Potrebbe servire qualche minuto. Controlla anche la posta indesiderata, oppure <button type="button" class="btn-link" data-act="onb-resend">mandalo di nuovo</button>.</p></div>
+      </form>`;
+    },
+  };
+  function onbAfter(step) {
+    const f = document.querySelector(".onb input:not([type=checkbox])"); if (f && step !== "kids") setTimeout(() => f.focus(), 50);
+  }
+  // figli scritti nella schermata (per non perderli quando se ne aggiunge o toglie uno)
+  function onbReadKids(form) {
+    const p = pendGet("it-pend") || { teams: [] }, out = [];
+    form.querySelectorAll(".onb-kid").forEach((el) => {
+      const i = el.dataset.i, g = (n) => (form.elements[n + i] ? String(form.elements[n + i].value || "").trim() : "");
+      const codes = p.teams.length > 1 ? [...form.querySelectorAll(`input[name="kt${i}"]:checked`)].map((x) => x.value) : p.teams.map((t) => t.code);
+      out.push({ first: g("kf"), last: g("kl"), codes });
+    });
+    return out;
+  }
+  // dopo la registrazione: nome, consensi e figli scritti prima dell'accesso
+  async function applyPending() {
+    const a = pendGet("it-acct");
+    if (a && S.user && String(a.email || "").toLowerCase() === String(S.user.email || "").toLowerCase()) {
+      const upd = { first_name: a.first, last_name: a.last, display_name: fullName(a.first, a.last) };
+      try { const { error } = await sb.from("profiles").update(upd).eq("id", S.user.id); if (!error) Object.assign(S.profile, upd); } catch (e) { /* lo chiederà la schermata del nome */ }
+      try { if (S.consents) { await saveConsent("terms", true); await saveConsent("parent", true); await saveConsent("news", !!a.news); await saveConsent("stats", !!a.stats); } } catch (e) { /* li chiederà la finestra dei consensi */ }
+    }
+    if (a) pendSet("it-acct", null);
+  }
+  async function joinPending() {
+    const p = pendGet("it-pend"); pendSet("it-pend", null);
+    if (!p || !p.kids || !p.kids.length) return false;
+    const names = Object.fromEntries(p.teams.map((t) => [t.code, t.name]));
+    const entries = p.kids.filter((k) => k.first && k.last && k.codes && k.codes.length).map((k) => ({ first: k.first, last: k.last, codes: k.codes }));
+    if (!entries.length) return false;
+    await doJoin(entries, p.teams.map((t) => t.code), names, p.teams.length > 1);
+    return true;
+  }
+
   // ---------- primo contatto: benvenuto, codice squadra, accesso ----------
   // S.ui.landing: "welcome" (default) · "code" (scrivi il codice) · "email" (accesso)
   function viewLogin(nextHash) {
@@ -367,32 +549,47 @@
     const next = store("it-next") || "";
     const kidInv = next.startsWith("#/genitore/");
     const invite = next.startsWith("#/join/") || kidInv;
-    const step = S.ui.loginEmail ? "otp" : (invite || next === "#/new") && !S.ui.landing ? "email" : (S.ui.landing || "welcome");
+    // invito a una squadra aperto senza essere entrati: prima i figli, poi l'account
+    if (next.startsWith("#/join/") && !S.ui.landing && !S.ui.loginEmail) {
+      store("it-next", null); S.ui.landing = "loading";
+      loadInvitePend(decodeURIComponent(next.slice(7))).then((ok) => { S.ui.landing = ok ? "kids" : "code"; if (!ok) toast(ERRORS.invalid_code); viewLogin(); });
+    }
+    // invito come secondo genitore: si controlla subito se è ancora valido
+    if (kidInv && !S.ui.landing && !S.ui.loginEmail) {
+      S.ui.landing = "loading";
+      sb.rpc("preview_kid_invite", { p_token: decodeURIComponent(next.slice(11)) }).then((r) => {
+        const k = r.data && r.data[0]; S.ui.kidInv = k || null;
+        S.ui.landing = k && k.valid ? "kidinv" : "kidbad"; viewLogin();
+      }, () => { S.ui.kidInv = null; S.ui.landing = "kidbad"; viewLogin(); });
+    }
+    const step = S.ui.loginEmail ? "otp" : next === "#/new" && !S.ui.landing ? "signup" : (S.ui.landing || (store("it-splash") ? "welcome" : "splash"));
+    if (ONB[step]) { document.body.classList.add("dark"); $app.innerHTML = ONB[step](); onbAfter(step); return; }
+    if (step === "splash") {
+      // prima schermata (solo la prima volta): logo, messaggio, tre punti, «Inizia»
+      document.body.classList.add("dark");
+      $app.innerHTML = `<section class="splash">
+          <div class="splash-logo"><img src="icon.svg" alt="" width="96" height="96"><img src="logo.svg?v=cp2" alt="CarPoolino" class="wordmark"></div>
+          <p class="splash-tag">Le trasferte della squadra,<br>organizzate in un minuto.</p>
+          <div class="splash-list">
+            <div><span aria-hidden="true">🚗</span><b>Chi guida offre i posti</b></div>
+            <div><span aria-hidden="true">🙋</span><b>Chi non ha passaggio lo chiede</b></div>
+            <div><span aria-hidden="true">🌱</span><b>Risparmi km, euro e CO₂</b></div>
+          </div>
+          <div class="splash-foot">
+            <button class="btn-primary btn-block splash-go" data-act="splash-go">Inizia</button>
+            <p class="small">Hai già un account? <button class="btn-link" data-act="landing-login">Accedi</button></p>
+            <p class="small muted"><a href="#/termini">Termini d'uso</a> · <a href="#/privacy">Informativa privacy</a></p>
+          </div>
+        </section>`;
+      return;
+    }
     const hero = (big) => `<div class="hero"><div class="in">
         <h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg?v=cp2" alt="CarPoolino" class="wordmark"></h1>
         <p style="font-size:1.2rem;margin:0">Le trasferte della squadra, organizzate in un minuto.</p>
       </div></div>`;
     const privacy = `<p class="small muted" style="text-align:center"><a href="#/termini">Termini d'uso</a> · <a href="#/privacy">Informativa privacy</a> · Nessuna pubblicità profilata, nessun dato ceduto a terzi.</p>`;
     let body = "";
-    if (step === "welcome") {
-      body = `<div class="feat">
-          <div><span aria-hidden="true">🚗</span><b>Chi guida offre i posti</b></div>
-          <div><span aria-hidden="true">🙋</span><b>Chi non ha passaggio lo chiede</b></div>
-          <div><span aria-hidden="true">🌱</span><b>Risparmi km, euro e CO₂</b></div>
-        </div>
-        <h2 class="who">Chi sei?</h2>
-        <button class="choice" data-act="landing-join"><span class="choice-ico" aria-hidden="true">🚗🙋</span><b>Sono un genitore</b><span>Ho ricevuto un invito dalla squadra di mio figlio</span></button>
-        <button class="choice" data-act="landing-create"><span class="choice-ico" aria-hidden="true">🏀⚽🏐</span><b>Sono una società o un allenatore</b><span>Registro la squadra e invito i genitori</span></button>
-        <p style="text-align:center;margin:4px 0 0">Hai già un account? <button class="btn-link" data-act="landing-login">Accedi</button></p>`;
-    } else if (step === "code") {
-      body = `<form class="card form" data-form="landing-code">
-          <h2 class="full">Entra nella squadra di tuo figlio</h2>
-          <label class="full">Codice d'invito<input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="Es. OLI-7K4M2"></label>
-          <p class="full small muted" style="margin:0">Te lo dà l'allenatore o un altro genitore: lo trovi nel messaggio WhatsApp della squadra o sotto il QR. Se hai ricevuto il link, aprilo: il codice è già dentro.</p>
-          <div class="actions"><button class="btn-primary btn-block" type="submit">Continua</button></div>
-          <p class="full small" style="margin:0;text-align:center">Non hai il codice? Chiedilo all'allenatore della squadra.</p>
-        </form>
-        <p style="text-align:center;margin:0"><button class="btn-link" data-act="landing-back">← Indietro</button></p>`;
+    if (false) {
     } else if (step === "login") {
       body = `<form class="card form" data-form="login-pw">
           <h2 class="full">Accedi</h2>
@@ -541,11 +738,13 @@
       if (!S.session) { toast("Accedi di nuovo"); return viewLogin(); }
       toast(errMsg(e));
     }
+    if (pendGet("it-acct")) await applyPending();
     if (!pwSet() || store("it-forcepw") === "1") return viewSetPassword();
     if (!consentsOk()) return viewConsents();
     if (!S.profile?.display_name) return viewName();
     if (S.myKids && (!S.profile.last_name || S.myKids.some((k) => !k.last_name))) return viewFillSurnames();
     logOpenOncePerDay();
+    if (pendGet("it-pend") && (pendGet("it-pend").kids || []).length) { const h0 = location.hash; try { if (await joinPending() && location.hash !== h0) return; } catch (e) { toast(errMsg(e)); } }
     const next = store("it-next");
     if (next) { store("it-next", null); if (next !== hash) { location.hash = next; return; } }
 
@@ -704,6 +903,30 @@
       </form>`;
     }
     $app.innerHTML = topBar({ title: "Invito", back: "#/" }) + `<div class="wrap narrow">${head}${body}</div>`;
+  }
+
+  // entra nelle squadre e collega i figli (da invito o dai dati scritti prima di registrarsi)
+  async function doJoin(entries, codes, names, multi) {
+    for (const e of entries) e.links = await resolveKidMulti(e, e.codes.map((c) => ({ key: c, code: c, name: names[c] || c })));
+    const used = codes.filter((c) => entries.some((e) => e.codes.includes(c)));
+    let ok = 0, wait = 0, last = null; const tid = {};
+    for (const c of used) {
+      const { data, error } = await sb.rpc("join_team", { p_code: c, p_athletes: "" });
+      if (error) { toast(errMsg(error)); continue; }
+      const r = data && data[0]; if (!r) continue;
+      tid[c] = r.team_id; if (r.status === "pending") wait++; else { ok++; last = r.team_id; }
+    }
+    for (const e of entries) for (const c of e.codes) if (tid[c]) {
+      const { data: na, error } = await sb.rpc("add_athlete", { p_team: tid[c], p_first: e.first, p_last: e.last, p_link: e.links[c] || null });
+      if (error) toast(errMsg(error));
+      else if (!e.links[c] && na && na.id && !e.existing) (S.newKidIds = S.newKidIds || []).push({ id: na.id, name: e.first });
+    }
+    await loadMyKids(); S.myTeams = null;
+    if (last) store("it-last-team", last);
+    offerParentInvite();
+    if (!multi) { if (wait) { toast("Richiesta inviata: attendi l'approvazione"); location.hash = "#/"; } else if (last) { toast("Benvenuto in squadra!"); location.hash = "#/t/" + last + "/trasferte"; } return; }
+    toast(ok && wait ? `Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}; ${wait} in attesa di approvazione` : ok ? `Benvenuto! Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}` : wait ? "Richiesta inviata: attendi l'approvazione" : "Nessuna squadra aggiunta");
+    location.hash = "#/";
   }
 
   // ---------- profilo ----------
@@ -1678,10 +1901,24 @@
       "data-export": () => exportMyData(),
       "del-ask": () => { S.ui.confirmDelete = true; viewProfile(); },
       "del-cancel": () => { S.ui.confirmDelete = false; viewProfile(); },
-      "landing-create": () => { store("it-next", "#/new"); S.ui.landing = "email"; viewLogin(); },
-      "landing-join": () => { store("it-next", null); S.ui.landing = "code"; viewLogin(); },
-      "landing-login": () => { S.ui.otpPurpose = null; S.ui.loginFailed = false; S.ui.landing = "login"; viewLogin(); },
-      "landing-back": () => { if (S.ui.otpPurpose) { S.ui.otpPurpose = null; S.ui.landing = "login"; return viewLogin(); } store("it-next", null); S.ui.landing = "welcome"; S.ui.inviteName = null; viewLogin(); },
+      "landing-create": () => { store("it-next", "#/new"); pendSet("it-pend", null); S.ui.landing = "signup"; viewLogin(); },
+      "onb-to-code": () => { S.ui.landing = "code"; viewLogin(); },
+      "onb-login-back": () => { const p = pendGet("it-pend"), nx = store("it-next") || ""; S.ui.landing = nx.startsWith("#/genitore/") ? "kidinv" : p && (p.kids || []).length ? "almost" : "welcome"; viewLogin(); },
+      "onb-to-kidinv": () => { S.ui.landing = "kidinv"; viewLogin(); },
+      "onb-to-kids": () => { S.ui.landing = "kids"; viewLogin(); },
+      "onb-to-almost": () => { S.ui.landing = pendGet("it-pend") ? "almost" : "welcome"; viewLogin(); },
+      "onb-signup": () => { S.ui.landing = "signup"; viewLogin(); },
+      "onb-kid-add": () => { const f = document.querySelector('[data-form="onb-kids"]'); const p = pendGet("it-pend"); p.kids = onbReadKids(f); const last = (p.kids[p.kids.length - 1] || {}).last || ""; p.kids.push({ first: "", last }); pendSet("it-pend", p); viewLogin(); document.querySelector(`.onb-kid[data-i="${p.kids.length - 1}"] input`)?.focus(); },
+      "onb-kid-del": () => { const f = document.querySelector('[data-form="onb-kids"]'); const p = pendGet("it-pend"); p.kids = onbReadKids(f); p.kids.splice(Number(b.dataset.i), 1); pendSet("it-pend", p); viewLogin(); },
+      "onb-resend": async () => {
+        const a = pendGet("it-acct"); if (!a) return;
+        b.disabled = true; const { error } = await sb.auth.resend({ type: "signup", email: a.email, options: { emailRedirectTo: location.origin + location.pathname } });
+        b.disabled = false; toast(error ? errMsg(error) : "Codice inviato di nuovo");
+      },
+      "landing-join": () => { store("it-next", null); S.ui.landing = pendGet("it-pend") ? "kids" : "code"; viewLogin(); },
+      "landing-login": () => { store("it-splash", "1"); S.ui.otpPurpose = null; S.ui.loginFailed = false; S.ui.landing = "login"; viewLogin(); },
+      "splash-go": () => { store("it-splash", "1"); S.ui.landing = "welcome"; viewLogin(); },
+      "landing-back": () => { if (S.ui.otpPurpose) { S.ui.otpPurpose = null; S.ui.landing = "login"; return viewLogin(); } store("it-next", null); pendSet("it-pend", null); S.ui.landing = "welcome"; S.ui.inviteName = null; viewLogin(); },
       "code-open": () => { S.ui.codeOpen = true; viewHome(); },
       "kid-more": () => { const box = b.closest(".kids"); const rows = box.querySelectorAll(".kid-row"); const last = rows[0]?.querySelector('input[name^="kl"]')?.value || ""; b.parentElement.insertAdjacentHTML("beforebegin", kidRow("", last, false)); box.querySelectorAll(".kid-row")[rows.length].querySelector("input").focus(); },
       "kid-more-multi": () => { const f = b.closest("form"); const box = f.querySelector(".kids-multi"); const i = box.querySelectorAll(".nk").length; const teams = f.dataset.codes.split(",").map((c) => ({ code: c, name: (S.ui.joinNames || {})[c] || c })); box.insertAdjacentHTML("beforeend", newKidCard(i, teams, S.profile.last_name, false)); box.querySelectorAll(".nk")[i].querySelector("input").focus(); },
@@ -1828,6 +2065,39 @@
     const fd = new FormData(f); const v = (k) => String(fd.get(k) ?? "").trim();
     const btn = f.querySelector('button[type="submit"]'); if (btn) btn.disabled = true;
     try {
+      if (kind === "onb-kids") {
+        const kids = onbReadKids(f).filter((k) => k.first || k.last);
+        const stop = (msg, sel) => { toast(msg); f.querySelector(sel)?.focus(); if (btn) btn.disabled = false; };
+        if (!kids.length) return stop("Scrivi il nome di tuo figlio", "input");
+        for (let i = 0; i < kids.length; i++) {
+          if (!kids[i].first) return stop("Scrivi il nome", `[name="kf${i}"]`);
+          if (!kids[i].last) return stop("Scrivi anche il cognome di " + kids[i].first, `[name="kl${i}"]`);
+          if (!kids[i].codes.length) return stop("Spunta la squadra in cui gioca " + kids[i].first, `[name="kt${i}"]`);
+        }
+        const p = pendGet("it-pend"); p.kids = kids; pendSet("it-pend", p);
+        S.ui.landing = "almost"; viewLogin(); return;
+      }
+      if (kind === "onb-signup") {
+        const pw = String(fd.get("pw1") || "");
+        if (!pwOk(pw)) { toast(ERRORS.pw_weak || "La password deve avere almeno 8 caratteri, con lettere e numeri"); if (btn) btn.disabled = false; return; }
+        const a = { first: v("first"), last: v("last"), email: v("email").toLowerCase(), terms: true, parent: true, news: fd.get("news") === "on", stats: fd.get("stats") === "on" };
+        pendSet("it-acct", a); S.ui.lastEmail = a.email;
+        const { data, error } = await sb.auth.signUp({ email: a.email, password: pw, options: { emailRedirectTo: location.origin + location.pathname, data: { pw_set: true, first_name: a.first, last_name: a.last } } });
+        if (error) throw error;
+        if (data && data.user && Array.isArray(data.user.identities) && !data.user.identities.length) {
+          // email già registrata: si entra con la password (o con un codice)
+          toast("Questa email ha già un account: entra con la tua password"); S.ui.landing = "login"; viewLogin(); return;
+        }
+        if (data && data.session) return; // conferma email non richiesta: il cambio di sessione apre l'app
+        S.ui.landing = "verify"; viewLogin(); return;
+      }
+      if (kind === "onb-verify") {
+        const a = pendGet("it-acct") || {}, token = v("code").replace(/\s+/g, "");
+        let r = await sb.auth.verifyOtp({ email: a.email, token, type: "signup" });
+        if (r.error) r = await sb.auth.verifyOtp({ email: a.email, token, type: "email" });
+        if (r.error) { toast("Codice non valido o scaduto"); if (btn) btn.disabled = false; return; }
+        S.ui.landing = null; return; // il cambio di sessione apre l'app
+      }
       if (kind === "login-pw") {
         S.ui.lastEmail = v("email");
         const { error } = await sb.auth.signInWithPassword({ email: v("email"), password: String(fd.get("password") || "") });
@@ -1912,7 +2182,7 @@
         const all = await expandCodes([code]);
         const ts = (await Promise.all(all.map((c) => sb.rpc("preview_invite", { p_code: c }).then((r) => (r.data && r.data[0]) || null, () => null)))).filter(Boolean);
         if (!ts.length) { toast(ERRORS.invalid_code); if (btn) btn.disabled = false; return; }
-        store("it-next", "#/join/" + encodeURIComponent(code)); S.ui.inviteName = ts.map((t) => t.team_name).join(" e "); S.ui.landing = "email"; viewLogin(); return;
+        await loadInvitePend(code); S.ui.landing = "kids"; viewLogin(); return;
       }
       if (kind === "code-join") { S.ui.codeOpen = false; location.hash = "#/join/" + encodeURIComponent(v("code").toUpperCase().replace(/\s+/g, "")); return; }
       if (kind === "join-any") {
@@ -1934,26 +2204,7 @@
           }
         }
         if (!entries.length) return stop(multi ? "Indica almeno un figlio e le squadre in cui gioca" : "Indica almeno un figlio");
-        for (const e of entries) e.links = await resolveKidMulti(e, e.codes.map((c) => ({ key: c, code: c, name: names[c] || c })));
-        const used = codes.filter((c) => entries.some((e) => e.codes.includes(c)));
-        let ok = 0, wait = 0, last = null; const tid = {};
-        for (const c of used) {
-          const { data, error } = await sb.rpc("join_team", { p_code: c, p_athletes: "" });
-          if (error) { toast(errMsg(error)); continue; }
-          const r = data && data[0]; if (!r) continue;
-          tid[c] = r.team_id; if (r.status === "pending") wait++; else { ok++; last = r.team_id; }
-        }
-        for (const e of entries) for (const c of e.codes) if (tid[c]) {
-          const { data: na, error } = await sb.rpc("add_athlete", { p_team: tid[c], p_first: e.first, p_last: e.last, p_link: e.links[c] || null });
-          if (error) toast(errMsg(error));
-          else if (!e.links[c] && na && na.id && !e.existing) (S.newKidIds = S.newKidIds || []).push({ id: na.id, name: e.first });
-        }
-        await loadMyKids(); S.myTeams = null;
-        if (last) store("it-last-team", last);
-        offerParentInvite();
-        if (!multi) { if (wait) { toast("Richiesta inviata: attendi l'approvazione"); location.hash = "#/"; } else if (last) { toast("Benvenuto in squadra!"); location.hash = "#/t/" + last + "/trasferte"; } return; }
-        toast(ok && wait ? `Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}; ${wait} in attesa di approvazione` : ok ? `Benvenuto! Sei entrato in ${ok} ${ok === 1 ? "squadra" : "squadre"}` : wait ? "Richiesta inviata: attendi l'approvazione" : "Nessuna squadra aggiunta");
-        location.hash = "#/"; return;
+        return doJoin(entries, codes, names, multi);
       }
       if (kind === "new-team") {
         const kids = readKids(fd);
