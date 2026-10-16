@@ -333,16 +333,19 @@
           <div><span aria-hidden="true">🙋</span><b>Chi non ha passaggio lo chiede</b></div>
           <div><span aria-hidden="true">🌱</span><b>Risparmi km, euro e CO₂</b></div>
         </div>
-        <button class="choice" data-act="landing-create"><b>Registra la tua squadra</b><span>Per allenatori e dirigenti: crei la squadra e inviti i genitori</span></button>
-        <button class="choice" data-act="landing-join"><b>Entra nella squadra di tuo figlio</b><span>Hai ricevuto un link, un QR o un codice</span></button>
+        <h2 class="who">Chi sei?</h2>
+        <button class="choice" data-act="landing-join"><span class="choice-ico" aria-hidden="true">🚗🙋</span><b>Sono un genitore</b><span>Ho ricevuto un invito dalla squadra di mio figlio</span></button>
+        <button class="choice" data-act="landing-create"><span class="choice-ico" aria-hidden="true">🏀⚽🏐</span><b>Sono una società o un allenatore</b><span>Registro la squadra e invito i genitori</span></button>
         <p style="text-align:center;margin:4px 0 0">Hai già un account? <button class="btn-link" data-act="landing-login">Accedi</button></p>`;
     } else if (step === "code") {
       body = `<form class="card form" data-form="landing-code">
-          <h2 class="full">Entra nella squadra</h2>
-          <label class="full">Codice della squadra<input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="Es. OLI-7K4M2"></label>
-          <p class="full small muted" style="margin:0">Il codice te lo dà l'allenatore o lo trovi sotto il QR. Se hai ricevuto un link su WhatsApp, aprilo: entri direttamente. Il QR si inquadra con la fotocamera del telefono.</p>
-          <div class="actions"><button class="btn-primary" type="submit">Continua</button><button class="btn-ghost" type="button" data-act="landing-back">Indietro</button></div>
-        </form>`;
+          <h2 class="full">Entra nella squadra di tuo figlio</h2>
+          <label class="full">Codice d'invito<input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="Es. OLI-7K4M2"></label>
+          <p class="full small muted" style="margin:0">Te lo dà l'allenatore o un altro genitore: lo trovi nel messaggio WhatsApp della squadra o sotto il QR. Se hai ricevuto il link, aprilo: il codice è già dentro.</p>
+          <div class="actions"><button class="btn-primary btn-block" type="submit">Continua</button></div>
+          <p class="full small" style="margin:0;text-align:center">Non hai il codice? Chiedilo all'allenatore della squadra.</p>
+        </form>
+        <p style="text-align:center;margin:0"><button class="btn-link" data-act="landing-back">← Indietro</button></p>`;
     } else if (step === "login") {
       body = `<form class="card form" data-form="login-pw">
           <h2 class="full">Accedi</h2>

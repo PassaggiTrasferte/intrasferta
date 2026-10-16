@@ -351,3 +351,7 @@ input,select,textarea{font-size:16px}  /* sotto i 16px Safari ingrandisce la pag
 .tbody,.offers,.reqs,.ride,.wrap{grid-template-columns:minmax(0,1fr)}
 .tbody .row>.btn-ghost{white-space:normal}
 .req{flex-wrap:wrap}.req-main{flex:1 1 140px}
+/* pagina iniziale: chi sei? */
+.who{text-align:center;margin:8px 0 0}
+body.dark .who{color:var(--navy-ink)}
+.choice .choice-ico{display:block;font-size:2.1rem;color:inherit;line-height:1;margin-bottom:6px;letter-spacing:4px}
