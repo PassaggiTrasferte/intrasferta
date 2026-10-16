@@ -856,6 +856,7 @@
     S.vehicles = all.flatMap((d) => d.vehicles); S.requests = all.flatMap((d) => d.requests);
     S.athletesOk = all.every((d) => d.athletes); S.athletes = all.flatMap((d) => d.athletes || []);
     try { S.notices = (await sb.rpc("my_notices")).data || []; } catch (e) { S.notices = []; }
+    try { S.userNotices = (await sb.rpc("my_user_notices")).data || []; } catch (e) { S.userNotices = []; }
     try { S.sponsors = (await sb.rpc("get_sponsors", { p_team: id })).data || []; } catch (e) { S.sponsors = []; }
     return true;
   }
@@ -985,7 +986,8 @@
   const kidsOf = (uid) => S.athletesOk ? S.athletes.filter((a) => a.team_id === S.team.id && a.parents.includes(uid)).map((a) => a.label).sort() : splitNames(member(uid).athletes);
   // avvisi: un altro genitore si è collegato a un mio figlio
   function noticeCards() {
-    return (S.notices || []).map((n) => `<div class="notice ok"><b>${esc(n.parent)} ora è anche genitore di ${esc(n.athlete)}</b>
+    return (S.userNotices || []).map((n) => `<div class="notice" style="background:var(--warn-soft);color:var(--ink)"><b>⚠️ ${esc(n.message)}</b>
+      <div class="row"><button class="btn-link" data-act="unotice-ok" data-id="${n.id}">Ok, ho capito</button></div></div>`).join("") + (S.notices || []).map((n) => `<div class="notice ok"><b>${esc(n.parent)} ora è anche genitore di ${esc(n.athlete)}</b>
       <div class="small">${esc(n.team)} · da ora vede e gestisce le prenotazioni di ${esc(firstName(n.athlete))}.</div>
       <div class="row"><button class="btn-link" data-act="notice-ok" data-id="${n.id}">Ok</button><button class="btn-link danger" data-act="notice-unlink" data-id="${n.id}">Non lo conosco, scollega</button></div></div>`).join("");
   }
@@ -1389,7 +1391,7 @@
         <label class="full">I miei atleti in questa squadra<input name="athletes" maxlength="200" value="${esc(S.me.athletes)}" placeholder="Più nomi separati da virgola"></label>
         <div class="actions"><button class="btn-primary" type="submit">Salva</button></div>
       </form>`}
-      <div class="card"><div class="label">Famiglie · ${act.length}</div>
+      <div class="card"><div class="label">Membri · ${act.length}</div>
         ${act.map((m) => {
           const me = m.user_id === S.user.id;
           const c = S.ui.confirm === "member:" + m.user_id;
@@ -1614,6 +1616,7 @@
         await sb.auth.signOut(); S.profile = null; location.hash = "#/"; toast("Account eliminato. Grazie per aver usato Carpoolino."); return;
       }
       if (act === "logout") { S.ui.confirmLogout = false; await sb.auth.signOut(); S.profile = null; location.hash = "#/"; return; }
+      if (act === "unotice-ok") { const { error } = await sb.rpc("user_notice_seen", { p_id: Number(id) }); if (error) throw error; await reloadTeam(); return; }
       if (act === "notice-ok" || act === "notice-unlink") {
         const n = (S.notices || []).find((x) => String(x.id) === String(id));
         const { error } = act === "notice-ok" ? await sb.rpc("notice_seen", { p_id: Number(id) }) : await sb.rpc("unlink_parent", { p_athlete: n.athlete_id, p_user: n.new_parent });
