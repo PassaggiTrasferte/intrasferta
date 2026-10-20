@@ -13,5 +13,5 @@ window.INTRASFERTA_CONFIG = {
 
   // Testo mostrato nei piè di pagina e nei messaggi di invito
   APP_NAME: "InTrasferta",
-  SUPPORT_EMAIL: "support@carpoolino.it"
+  SUPPORT_EMAIL: "support@genigo.it"
 };

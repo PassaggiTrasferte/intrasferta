@@ -1,4 +1,4 @@
-/* CarPoolino · webapp (beta)
+/* geniGO · webapp (beta)
    Nessun build: HTML + JS + Supabase. Tutti i testi degli utenti passano da esc(). */
 (function () {
   "use strict";
@@ -206,7 +206,7 @@
     if (error) { toast(errMsg(error)); return; }
     const url = location.origin + location.pathname + "#/genitore/" + tok;
     const who = names.length > 1 ? names.slice(0, -1).join(", ") + " e " + names[names.length - 1] : names[0];
-    const text = `Ciao! Ho inserito ${who} su CarPoolino per organizzare i passaggi alle trasferte. Apri questo link e registrati: vedrai e potrai gestire anche tu le sue prenotazioni. ${url}`;
+    const text = `Ciao! Ho inserito ${who} su geniGO per organizzare i passaggi alle trasferte. Apri questo link e registrati: vedrai e potrai gestire anche tu le sue prenotazioni. ${url}`;
     document.querySelector(".modal-back.inv")?.remove();
     const d = document.createElement("div"); d.className = "modal-back inv";
     d.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><h2>Invita l'altro genitore</h2>
@@ -274,19 +274,19 @@
   function viewConsents() {
     const updated = S.consents && S.consents.terms && S.consents.terms.version !== TERMS_VERSION;
     const open = S.ui.legalOpen;
-    $app.innerHTML = `<div class="hero"><div class="in"><h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg?v=cp2" alt="CarPoolino" class="wordmark"></h1></div></div>
+    $app.innerHTML = `<div class="hero"><div class="in"><h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg?v=gg1" alt="geniGO" class="wordmark"></h1></div></div>
       <div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="cons-title">
         <img src="icon.svg" alt="" width="56" height="56" class="modal-icon">
         <h2 id="cons-title">${updated ? "Abbiamo aggiornato i Termini" : "Prima di iniziare, due cose importanti"}</h2>
         ${open ? `<div class="legal-box">${LEGAL[open].html}</div><button class="btn-ghost" data-act="legal-close">← Torna al riepilogo</button>` : `
-        <div class="cons-item"><span aria-hidden="true">🤝</span><div><b>CarPoolino mette in contatto le famiglie, non organizza i viaggi.</b> I passaggi sono accordi gratuiti tra genitori: chi guida è responsabile del proprio viaggio.</div></div>
+        <div class="cons-item"><span aria-hidden="true">🤝</span><div><b>geniGO mette in contatto le famiglie, non organizza i viaggi.</b> I passaggi sono accordi gratuiti tra genitori: chi guida è responsabile del proprio viaggio.</div></div>
         <div class="cons-item"><span aria-hidden="true">🚗</span><div><b>Chi offre un passaggio deve poter trasportare i ragazzi in sicurezza:</b> patente valida, auto assicurata e revisionata, rispetto del codice della strada, cinture o seggiolini per tutti, non più passeggeri dei posti omologati.</div></div>
         <div class="cons-item"><span aria-hidden="true">🔒</span><div><b>I tuoi dati restano qui.</b> Nome, cellulare e nome dei tuoi figli li vedono solo le tue squadre. Niente pubblicità profilata, nessun dato ceduto a terzi, nessuna posizione in tempo reale.</div></div>`}
         <form class="form" data-form="consents">
           <label class="full check"><input type="checkbox" name="terms" required ${hasConsent("terms") && !updated ? "checked" : ""}> <span>Ho letto e accetto i <button type="button" class="btn-link" data-act="legal-open" data-v="termini">Termini d'uso</button> e l'<button type="button" class="btn-link" data-act="legal-open" data-v="privacy">Informativa privacy</button> <small class="muted">(obbligatorio)</small></span></label>
           <label class="full check"><input type="checkbox" name="parent" required ${hasConsent("parent") ? "checked" : ""}> <span>Sono il genitore, o chi ne fa le veci, degli atleti che inserirò <small class="muted">(obbligatorio)</small></span></label>
           <div class="full label" style="margin-top:4px">Facoltativi</div>
-          <label class="full check switch"><input type="checkbox" name="news" ${hasConsent("news") ? "checked" : ""}> <span>Ricevere via email novità e consigli d'uso di CarPoolino</span></label>
+          <label class="full check switch"><input type="checkbox" name="news" ${hasConsent("news") ? "checked" : ""}> <span>Ricevere via email novità e consigli d'uso di geniGO</span></label>
           <label class="full check switch"><input type="checkbox" name="stats" ${hasConsent("stats") ? "checked" : ""}> <span>Statistiche d'uso anonime per migliorare l'app</span></label>
           <div class="actions"><button class="btn-primary btn-block" type="submit">Continua</button></div>
         </form>
@@ -299,10 +299,10 @@
   const LEGAL = {
     termini: { title: "Termini d'uso", html: `
       <p class="muted">Versione ${TERMS_VERSION} · aggiornati il ${LEGAL_UPDATED}. Gestore del servizio: &lt;titolare&gt;.</p>
-      <h3>1. Cos'è CarPoolino</h3>
-      <p>CarPoolino è uno strumento online che aiuta i genitori e le società sportive a coordinare i passaggi in auto verso trasferte, partite e allenamenti. CarPoolino <b>mette in contatto le famiglie ma non organizza, non effettua e non intermedia trasporti</b>: non è un vettore, un'agenzia né un servizio di noleggio con conducente.</p>
+      <h3>1. Cos'è geniGO</h3>
+      <p>geniGO è uno strumento online che aiuta i genitori e le società sportive a coordinare i passaggi in auto verso trasferte, partite e allenamenti. geniGO <b>mette in contatto le famiglie ma non organizza, non effettua e non intermedia trasporti</b>: non è un vettore, un'agenzia né un servizio di noleggio con conducente.</p>
       <h3>2. Passaggi di cortesia, gratuiti</h3>
-      <p>I passaggi pubblicati sono accordi liberi e <b>gratuiti</b> tra privati (trasporto di cortesia). CarPoolino non gestisce pagamenti e vieta di chiedere o offrire compensi per i passaggi. Ogni eventuale accordo diverso riguarda solo le persone coinvolte.</p>
+      <p>I passaggi pubblicati sono accordi liberi e <b>gratuiti</b> tra privati (trasporto di cortesia). geniGO non gestisce pagamenti e vieta di chiedere o offrire compensi per i passaggi. Ogni eventuale accordo diverso riguarda solo le persone coinvolte.</p>
       <h3>3. Chi guida</h3>
       <p>Chi offre un passaggio dichiara, e garantisce per tutta la durata del viaggio, di:</p>
       <ul><li>avere una patente valida e non sospesa, ed essere in condizioni idonee alla guida;</li>
@@ -313,9 +313,9 @@
       <h3>4. Genitori e accompagnatori</h3>
       <p>Il genitore, o chi esercita la responsabilità genitoriale, decide liberamente se affidare il proprio figlio a un altro conducente e se accettare un passaggio. È sua cura verificare che le condizioni del viaggio siano adeguate.</p>
       <h3>5. Società sportive e mezzi della società</h3>
-      <p>La società che usa CarPoolino resta responsabile dei propri mezzi, dei propri autisti e delle proprie coperture assicurative. CarPoolino non sostituisce le polizze della società né quelle dei singoli conducenti.</p>
+      <p>La società che usa geniGO resta responsabile dei propri mezzi, dei propri autisti e delle proprie coperture assicurative. geniGO non sostituisce le polizze della società né quelle dei singoli conducenti.</p>
       <h3>6. Limitazione di responsabilità</h3>
-      <p>Nei limiti consentiti dalla legge, il gestore di CarPoolino non risponde di sinistri, danni a persone o cose, ritardi, mancati passaggi o comportamenti degli utenti durante i viaggi, che restano regolati dai rapporti tra le persone coinvolte e dalle rispettive assicurazioni. Restano ferme le responsabilità che la legge non consente di escludere.</p>
+      <p>Nei limiti consentiti dalla legge, il gestore di geniGO non risponde di sinistri, danni a persone o cose, ritardi, mancati passaggi o comportamenti degli utenti durante i viaggi, che restano regolati dai rapporti tra le persone coinvolte e dalle rispettive assicurazioni. Restano ferme le responsabilità che la legge non consente di escludere.</p>
       <h3>7. Uso corretto</h3>
       <p>Inserisci solo dati veri e che hai il diritto di condividere, non usare l'app per scopi diversi dal coordinamento dei passaggi e rispetta gli altri membri della squadra. Gli amministratori possono rimuovere chi non rispetta queste regole.</p>
       <h3>8. Servizio e modifiche</h3>
@@ -387,7 +387,7 @@
     kidinv: () => {
       const k = S.ui.kidInv || {};
       return `<section class="onb">
-        <div class="onb-logo"><img src="logo.svg?v=cp2" alt="CarPoolino"></div>
+        <div class="onb-logo"><img src="logo.svg?v=gg1" alt="geniGO"></div>
         <div class="onb-mid onb-center">
           <p class="onb-sub onb-center" style="margin:0">${esc(k.inviter || "Un genitore")} ti ha invitato come genitore di</p>
           <h1 class="onb-h onb-center">${esc(k.kids || "")}</h1>
@@ -404,7 +404,7 @@
     kidbad: () => {
       const k = S.ui.kidInv;
       return `<section class="onb">
-        <div class="onb-logo"><img src="logo.svg?v=cp2" alt="CarPoolino"></div>
+        <div class="onb-logo"><img src="logo.svg?v=gg1" alt="geniGO"></div>
         <div class="onb-mid onb-center">
           <div class="onb-bad" aria-hidden="true">⏳</div>
           <h1 class="onb-h onb-center">${k ? "Invito non più valido" : "Invito non trovato"}</h1>
@@ -429,12 +429,12 @@
       </form>`,
     loading: () => `<section class="onb"><div class="onb-mid"><div class="boot">Controllo l'invito…</div></div></section>`,
     welcome: () => `<section class="onb">
-        <div class="onb-logo"><img src="logo.svg?v=cp2" alt="CarPoolino"></div>
+        <div class="onb-logo"><img src="logo.svg?v=gg1" alt="geniGO"></div>
         <h1 class="onb-h onb-center">Chi sei?</h1>
         <div class="onb-cards">
           <button class="onb-card" data-act="landing-join"><span class="onb-card-ico" aria-hidden="true">🚗🙋</span><span><b>Sono un genitore</b><small>Ho ricevuto un invito o un codice dalla squadra di mio figlio</small></span><i aria-hidden="true">›</i></button>
           <button class="onb-card" data-act="landing-create"><span class="onb-card-ico" aria-hidden="true">🏀⚽🏐</span><span><b>Sono una società o un allenatore</b><small>Registro la squadra e invito i genitori</small></span><i aria-hidden="true">›</i></button>
-          <button class="onb-card" data-act="landing-login"><span class="onb-card-ico" aria-hidden="true">🔑</span><span><b>Accedi</b><small>Ho già un account CarPoolino</small></span><i aria-hidden="true">›</i></button>
+          <button class="onb-card" data-act="landing-login"><span class="onb-card-ico" aria-hidden="true">🔑</span><span><b>Accedi</b><small>Ho già un account geniGO</small></span><i aria-hidden="true">›</i></button>
         </div>
         <div class="onb-foot">${onbLegal}</div>
       </section>`,
@@ -568,7 +568,7 @@
       // prima schermata (solo la prima volta): logo, messaggio, tre punti, «Inizia»
       document.body.classList.add("dark");
       $app.innerHTML = `<section class="splash">
-          <div class="splash-logo"><img src="icon.svg" alt="" width="96" height="96"><img src="logo.svg?v=cp2" alt="CarPoolino" class="wordmark"></div>
+          <div class="splash-logo"><img src="icon.svg" alt="" width="96" height="96"><img src="logo.svg?v=gg1" alt="geniGO" class="wordmark"></div>
           <p class="splash-tag">Le trasferte della squadra,<br>organizzate in un minuto.</p>
           <div class="splash-list">
             <div><span aria-hidden="true">🚗</span><b>Chi guida offre i posti</b></div>
@@ -584,7 +584,7 @@
       return;
     }
     const hero = (big) => `<div class="hero"><div class="in">
-        <h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg?v=cp2" alt="CarPoolino" class="wordmark"></h1>
+        <h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg?v=gg1" alt="geniGO" class="wordmark"></h1>
         <p style="font-size:1.2rem;margin:0">Le trasferte della squadra, organizzate in un minuto.</p>
       </div></div>`;
     const privacy = `<p class="small muted" style="text-align:center"><a href="#/termini">Termini d'uso</a> · <a href="#/privacy">Informativa privacy</a> · Nessuna pubblicità profilata, nessun dato ceduto a terzi.</p>`;
@@ -653,10 +653,10 @@
   function viewSetPassword() {
     const reset = store("it-forcepw") === "1";
     document.body.classList.add("dark");
-    $app.innerHTML = `<div class="hero"><div class="in"><h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg?v=cp2" alt="CarPoolino" class="wordmark"></h1></div></div>
+    $app.innerHTML = `<div class="hero"><div class="in"><h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg?v=gg1" alt="geniGO" class="wordmark"></h1></div></div>
       <div class="wrap narrow"><form class="card form" data-form="set-pw">
         <h2 class="full">${reset ? "Scegli la nuova password" : "Scegli la tua password"}</h2>
-        <p class="full muted" style="margin:0">${reset ? "Da ora entrerai" : "La userai per entrare in CarPoolino"} con <b>${esc(S.user.email || "")}</b>.</p>
+        <p class="full muted" style="margin:0">${reset ? "Da ora entrerai" : "La userai per entrare in geniGO"} con <b>${esc(S.user.email || "")}</b>.</p>
         ${pwField("pw1", reset ? "Nuova password" : "Password", "new-password", "Almeno 8 caratteri, con lettere e numeri.")}
         ${pwField("pw2", "Ripeti la password")}
         ${pwRules()}
@@ -762,7 +762,7 @@
   function topBar({ title, sub, back, backLabel, tabs, active, teamId }) {
     return `<header class="top"><div class="in">
       ${back ? `<a class="iconbtn" href="${back}" aria-label="${esc(backLabel || "Indietro")}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></a>` : ""}
-      <a class="brand" href="#/" aria-label="CarPoolino, home"><img src="icon.svg" alt="" width="38" height="38"><img src="logo.svg?v=cp2" alt="" class="wordmark"></a>
+      <a class="brand" href="#/" aria-label="geniGO, home"><img src="icon.svg" alt="" width="38" height="38"><img src="logo.svg?v=gg1" alt="" class="wordmark"></a>
       <div class="grow"></div>
       <a class="iconbtn ring" href="#/profilo" aria-label="Profilo">${esc(initials(S.profile?.display_name))}</a>
     </div>
@@ -776,8 +776,8 @@
   // versione letta dall'indirizzo di app.js in index.html (es. app.js?v=20261015-3)
   const APP_VERSION = ((document.querySelector('script[src*="app.js"]') || {}).src || "").split("v=")[1] || "";
   // riga della versione, fissa in fondo a tutte le pagine (fuori dall'area che si ridisegna)
-  { const ver = document.getElementById("ver"); if (ver) ver.textContent = "CarPoolino" + (APP_VERSION ? " · versione " + APP_VERSION : ""); }
-  const footer = () => `<footer class="foot">CarPoolino beta · solo coordinamento tra famiglie, nessun pagamento · <a href="#/termini">Termini</a> · <a href="#/privacy">Privacy</a> · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
+  { const ver = document.getElementById("ver"); if (ver) ver.textContent = "geniGO" + (APP_VERSION ? " · versione " + APP_VERSION : ""); }
+  const footer = () => `<footer class="foot">geniGO beta · solo coordinamento tra famiglie, nessun pagamento · <a href="#/termini">Termini</a> · <a href="#/privacy">Privacy</a> · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
 
   // ---------- home: le mie squadre ----------
   async function viewHome(stay) {
@@ -817,7 +817,7 @@
     $app.innerHTML = topBar({}) + `<div class="wrap">
       <div><div class="muted">Ciao ${esc(S.profile.display_name.split(",")[0])}</div><h1>Le mie squadre</h1></div>
       ${pending.length ? `<div class="notice">Hai ${pending.length} richiest${pending.length === 1 ? "a" : "e"} in attesa di approvazione da parte dell'amministratore.</div>` : ""}
-      ${cards || `<div class="intro"><h2>Benvenuto in CarPoolino</h2><div class="muted">Non sei ancora in nessuna squadra. Cosa vuoi fare?</div></div>`}
+      ${cards || `<div class="intro"><h2>Benvenuto in geniGO</h2><div class="muted">Non sei ancora in nessuna squadra. Cosa vuoi fare?</div></div>`}
       ${!cards && !S.ui.codeOpen ? `<button class="choice" data-act="code-open"><b>Entra nella squadra di tuo figlio</b><span>Scrivi il codice che ti ha dato l'allenatore, oppure apri il link ricevuto</span></button>
         <a class="choice" href="#/new"><b>Registra la tua squadra</b><span>Per allenatori e dirigenti: crei la squadra e inviti i genitori</span></a>` : ""}
       <div class="stack">
@@ -846,13 +846,13 @@
         <div class="full intro"><div class="label">Così vedranno le pagine i genitori</div>
           <div class="small">Luogo: <b>${esc(L.place)}</b> · Orario: <b>${esc(L.time)}</b> · Evento: <b>${esc(L.event)}</b></div></div>
         <label class="full check declare"><input name="role-ok" type="checkbox" required> <span>Sono l'allenatore o un dirigente di questa squadra e accetto i <a href="#/termini" target="_blank">Termini</a> per le società: mezzi, autisti e coperture assicurative della società restano sotto la sua responsabilità.</span></label>
-        <p class="full small muted" style="margin:0">Diventerai l'amministratore: aggiungi le trasferte e inviti i genitori. Se tuo figlio è già in una squadra su CarPoolino, non crearne un'altra: chiedi il link all'allenatore.</p>
+        <p class="full small muted" style="margin:0">Diventerai l'amministratore: aggiungi le trasferte e inviti i genitori. Se tuo figlio è già in una squadra su geniGO, non crearne un'altra: chiedi il link all'allenatore.</p>
         <div class="actions"><button class="btn-primary btn-block" type="submit">Crea la squadra e continua</button></div>
       </form></div>`;
   }
 
   // ---------- entrare con invito (una o più squadre) ----------
-  // ogni figlio si scrive una volta; chi ha già figli su CarPoolino li spunta
+  // ogni figlio si scrive una volta; chi ha già figli su geniGO li spunta
   const joinTeamPills = (name, teams, checked) => `<div class="pill-group">${teams.map((t) => `<label class="pill check-pill"><input type="checkbox" name="${name}" value="${esc(t.code)}" ${checked ? "checked" : ""}> ${esc(t.name)}</label>`).join("")}</div>`;
   const newKidCard = (i, teams, last, checked) => `<div class="kid-card nk"><div class="kid-row"><label>Nome<input name="nf${i}" maxlength="40" autocomplete="off"></label><label>Cognome<input name="nl${i}" maxlength="40" autocomplete="off" value="${esc(last || "")}"></label></div>
       <div class="small muted">In quali di queste squadre gioca?</div>${joinTeamPills("nt" + i, teams, checked)}</div>`;
@@ -894,7 +894,7 @@
       body = `<form class="card form" data-form="join-any" data-codes="${esc(open.map((t) => t.code).join(","))}">
         ${inAlready ? `<div class="full">${inAlready}</div>` : ""}
         <div class="full label">I tuoi figli</div>
-        ${groups.map((g, i) => `<div class="full kid-card"><div><b>${esc(fullName(g.first, g.last))}</b><div class="small muted">già su CarPoolino${g.recs.length ? " · " + esc(g.recs.map((r) => tname(r.team_id)).filter(Boolean).join(" · ")) : ""}</div></div>
+        ${groups.map((g, i) => `<div class="full kid-card"><div><b>${esc(fullName(g.first, g.last))}</b><div class="small muted">già su geniGO${g.recs.length ? " · " + esc(g.recs.map((r) => tname(r.team_id)).filter(Boolean).join(" · ")) : ""}</div></div>
           <div class="small muted">In quali di queste squadre gioca?</div>${joinTeamPills("ek-" + i, open, false)}</div>`).join("")}
         <div class="full kids-multi">${newKidCard(0, open, S.profile.last_name, !groups.length)}</div>
         <div class="full"><button type="button" class="btn-link" data-act="kid-more-multi">+ Aggiungi ${groups.length ? "un altro" : "un altro"} figlio</button></div>
@@ -997,7 +997,7 @@
       ${S.platformAdmin ? `<a class="btn btn-primary btn-block" href="#/admin">Pannello di amministrazione</a>` : ""}
       ${privacyCard()}
       <div class="card small">
-        ${S.ui.confirmLogout ? `<div><b>Vuoi uscire da CarPoolino su questo dispositivo?</b></div>
+        ${S.ui.confirmLogout ? `<div><b>Vuoi uscire da geniGO su questo dispositivo?</b></div>
           <div class="muted">Per rientrare dovrai inserire di nuovo la tua email e il codice che ti arriva.</div>
           <div class="row"><button class="btn-link danger" data-act="logout">Sì, esci</button><button class="btn-link" data-act="logout-cancel">No, resta collegato</button></div>`
         : `<div class="muted">Resti collegato su questo dispositivo finché non esci.</div><div><button class="btn-link danger" data-act="logout-ask">Esci dall'account</button></div>`}
@@ -1038,7 +1038,7 @@
       figli: (S.myKids || []).map((k) => ({ nome: k.first_name, cognome: k.last_name, squadra: (teams.find((t) => t.id === k.team_id) || {}).name })),
       auto_offerte: rides.data || [], prenotazioni: books.data || [], richieste: reqs.data || [], consensi: S.consentLog || [] };
     const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "carpoolino-i-miei-dati.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "genigo-i-miei-dati.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
   // ---------- pannello amministrazione (solo super-admin) ----------
@@ -1106,7 +1106,7 @@
     const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const rows = L.map((t) => [q(t.name), t.sport, q(t.category), q(t.season), t.plan, String(t.created_at).slice(0, 10), t.members, t.pending, t.events, t.events_upcoming, t.rides, t.bookings, t.requests_open, t.ai_imports, String(t.last_activity).slice(0, 10)].join(";"));
     const blob = new Blob(["\ufeff" + [head.join(";")].concat(rows).join("\n")], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "carpoolino-squadre.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "genigo-squadre.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
   // ---------- squadra ----------
@@ -1500,7 +1500,7 @@
   function tabSponsors() {
     if (!S.teamSponsorsLoaded) return `<div class="boot">Carico gli sponsor…</div>`;
     const editing = S.ui.spEdit === "new" ? null : (S.teamSponsors || []).find((x) => x.id === S.ui.spEdit);
-    return `<div class="notice small">Gli sponsor della società compaiono solo ai membri di questa squadra, a rotazione nel banner in cima alla pagina Trasferte. Puoi inserirne fino a 10. Finché ne hai almeno uno attivo, sostituiscono quelli di CarPoolino.</div>
+    return `<div class="notice small">Gli sponsor della società compaiono solo ai membri di questa squadra, a rotazione nel banner in cima alla pagina Trasferte. Puoi inserirne fino a 10. Finché ne hai almeno uno attivo, sostituiscono quelli di geniGO.</div>
       ${S.ui.spEdit ? sponsorForm(editing, "team") : `<button class="btn-primary" data-act="sp-new">+ Aggiungi sponsor</button>`}
       <div class="card"><div class="label">Sponsor della squadra · ${(S.teamSponsors || []).length}</div>${sponsorList(S.teamSponsors || [], S.teamSponsorStats, "team")}</div>`;
   }
@@ -1747,7 +1747,7 @@
   const inviteText = () => {
     const ts = inviteTeams(); const names = ts.length === 1 ? ts[0].name : ts.slice(0, -1).map((t) => t.name).join(", ") + " e " + ts[ts.length - 1].name;
     const c = inviteCode();
-    return `Ciao! Per organizzare i passaggi alle trasferte di ${names} usiamo CarPoolino. Apri il link e indica ${ts.length > 1 ? "i tuoi figli e le squadre in cui giocano" : "il nome di tuo figlio"}: ${inviteUrl()}${c.includes(",") ? "" : ` (oppure su ${location.host || "carpoolino.it"} scrivi il codice ${c})`}`;
+    return `Ciao! Per organizzare i passaggi alle trasferte di ${names} usiamo geniGO. Apri il link e indica ${ts.length > 1 ? "i tuoi figli e le squadre in cui giocano" : "il nome di tuo figlio"}: ${inviteUrl()}${c.includes(",") ? "" : ` (oppure su ${location.host || "genigo.it"} scrivi il codice ${c})`}`;
   };
   function tabInvite() {
     const admin = isAdmin();
@@ -1972,7 +1972,7 @@
       if (act === "del-account") {
         const { error } = await sb.rpc("delete_my_account"); if (error) throw error;
         S.ui = {}; try { localStorage.clear(); } catch (e) {}
-        await sb.auth.signOut(); S.profile = null; location.hash = "#/"; toast("Account eliminato. Grazie per aver usato CarPoolino."); return;
+        await sb.auth.signOut(); S.profile = null; location.hash = "#/"; toast("Account eliminato. Grazie per aver usato geniGO."); return;
       }
       if (act === "logout") { S.ui.confirmLogout = false; await sb.auth.signOut(); S.profile = null; location.hash = "#/"; return; }
       if (act === "kid-accept") {
@@ -2002,7 +2002,7 @@
         const r = S.rides.find((x) => x.id === id), e = r && S.events.find((x) => x.id === r.event_id);
         const pax = S.bookings.filter((x) => x.ride_id === id && x.booked_by !== S.user.id);
         const { error } = await sb.from("rides").delete().eq("id", id); if (error) throw error; toast("Mezzo ritirato");
-        if (e && pax.length) { const L = tripLabel(e); S.ui.wa = pax.map((bk) => { const m = member(bk.booked_by); return { to: firstName(m.name), phone: m.phone, text: `Ciao ${firstName(m.name)}, purtroppo non posso più accompagnare ${bk.athlete_name} a ${L.trip} (${L.d}): il posto è di nuovo libero su CarPoolino.` }; }); }
+        if (e && pax.length) { const L = tripLabel(e); S.ui.wa = pax.map((bk) => { const m = member(bk.booked_by); return { to: firstName(m.name), phone: m.phone, text: `Ciao ${firstName(m.name)}, purtroppo non posso più accompagnare ${bk.athlete_name} a ${L.trip} (${L.d}): il posto è di nuovo libero su geniGO.` }; }); }
       }
       if (act === "take") {
         const q = S.requests.find((x) => x.id === id), e = q && S.events.find((x) => x.id === q.event_id);

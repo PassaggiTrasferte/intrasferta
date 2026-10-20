@@ -152,7 +152,7 @@ footer.foot{text-align:center;color:var(--muted);font-size:.82rem;padding:8px 16
 .pax .row button, .pax .row .btn-link { white-space: nowrap; }
 .wa-card .btn-ok { text-decoration: none; }
 
-/* logo CarPoolino */
+/* logo geniGO */
 .brand img{display:block}
 .brand .wordmark{height:22px;width:auto}
 .hero-logo{display:flex;align-items:center;gap:14px;margin:0}
@@ -443,3 +443,4 @@ body.dark .who{color:var(--navy-ink)}
 .onb-btn-top{margin-top:6px}
 .onb-help{margin-top:18px!important}
 .onb .onb-group input:not([type=checkbox]),.onb .onb-group input:not([type=checkbox]):focus{background:transparent!important;border:0!important;box-shadow:none!important;padding:6px 0!important;border-radius:0!important}
+.splash-logo .wordmark{height:50px}
