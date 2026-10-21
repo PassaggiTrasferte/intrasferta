@@ -365,7 +365,7 @@ body.dark .who{color:var(--navy-ink)}
 .splash-list{display:grid;gap:16px;margin:44px auto 0;width:100%;max-width:340px}
 .splash-list div{display:flex;gap:14px;align-items:center;font-size:1.15rem}
 .splash-list b{font-weight:600}
-.splash-list span{width:40px;height:40px;display:grid;place-items:center;font-size:1.8rem;flex:none}
+.splash-list span{width:52px;height:52px;border-radius:16px;background:rgba(255,255,255,.08);display:grid;place-items:center;font-size:1.6rem;flex:none}
 .splash-foot{margin-top:auto;padding-top:36px;display:grid;gap:10px;text-align:center}
 .splash-foot p{margin:0}
 .splash-foot a,.splash-foot .btn-link{color:#7BE495}
@@ -444,32 +444,6 @@ body.dark .who{color:var(--navy-ink)}
 .onb-help{margin-top:18px!important}
 .onb .onb-group input:not([type=checkbox]),.onb .onb-group input:not([type=checkbox]):focus{background:transparent!important;border:0!important;box-shadow:none!important;padding:6px 0!important;border-radius:0!important}
 .splash-logo .wordmark{height:50px}
-
-/* trasferte: la prima aperta, le altre in righe compatte */
-.trips-label{font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted,#8A93A3);font-weight:700;margin:14px 2px 2px}
-.trips-label.next{color:#2FB36A;margin-top:2px}
-.trip-row{cursor:pointer;position:relative}
-.trip-row .stub{padding-top:8px;padding-bottom:8px;gap:0}
-.trip-row .stub .day{font-size:1.4rem;line-height:1.05}
-.trip-row .tbody{padding:10px 36px 10px 14px}
-.trip-row h2{font-size:1rem;line-height:1.2;margin:0}
-.trip-row .city{font-size:.85rem;opacity:.75;margin-top:3px}
-.trip-row .row{margin-top:6px}
-.trip-row .chip{font-size:.75rem}
-.trip-row .chev{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:1.6rem;opacity:.6}
-@media print{.trips-label{display:none}.trip-row .chev{display:none}}
-
-/* registrazione squadra: sport, squadra, account */
-.onb-wiz{display:flex;gap:6px;list-style:none;padding:0;margin:4px 0 6px;font-size:.78rem;color:var(--navy-muted)}
-.onb-wiz li{flex:1;border-top:3px solid #2A3240;padding-top:6px}
-.onb-wiz li.on{border-color:var(--brand);color:var(--navy-ink)}
-.onb-wiz li.done{border-color:#1E9455}
-.onb-sports{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.onb-sp{background:#1A212C;border:2px solid #252D3A;border-radius:16px;padding:14px 8px;text-align:center;color:var(--navy-ink);font:inherit;cursor:pointer}
-.onb-sp span{font-size:2rem;display:block;line-height:1.1}
-.onb-sp b{display:block;margin-top:4px;font-size:.95rem}
-.onb-sp.on{border-color:var(--brand);background:#17301F}
-.onb-spchip{display:inline-flex;gap:8px;align-items:center;background:#17301F;border:1px solid var(--brand);border-radius:999px;padding:6px 12px;font-size:.9rem;color:var(--navy-ink)}
-.onb-box{background:#1A212C;border-radius:14px;padding:12px 14px;font-size:.85rem;color:var(--navy-muted)}
-.onb-box b{color:var(--navy-ink)}
-.onb-btn:disabled{opacity:.45}
+.wait-card{display:grid;gap:12px;text-align:center;justify-items:center}
+.wait-card h2{margin:0}.wait-card p{margin:0}
+.wait-ico{font-size:2.6rem;line-height:1}

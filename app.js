@@ -789,6 +789,31 @@
     S.memberships = mems || [];
     const ids = S.memberships.filter((m) => m.status === "active").map((m) => m.team_id);
     if (ids.length) { const last = store("it-last-team"); location.replace("#/t/" + (ids.includes(last) ? last : ids[0]) + "/trasferte"); return; }
+    // solo richieste in attesa: si spiega cosa succede, senza proporre altre strade
+    const waiting = S.memberships.filter((m) => m.status === "pending");
+    if (waiting.length && !S.ui.codeOpen) {
+      let names = [];
+      try { names = ((await sb.from("teams").select("id,name").in("id", waiting.map((m) => m.team_id))).data || []).map((t) => t.name); } catch (e) { /* nomi non visibili prima dell'approvazione */ }
+      const kids = (S.myKids || []).map((k) => k.first_name).filter(Boolean);
+      $app.innerHTML = topBar({}) + `<div class="wrap narrow">
+        <div><div class="muted">Ciao ${esc(firstName(S.profile.display_name))}</div><h1>Quasi dentro!</h1></div>
+        <div class="card wait-card">
+          <div class="wait-ico" aria-hidden="true">⏳</div>
+          <h2>Richiesta inviata${names.length ? " a " + esc(names.join(" e ")) : ""}</h2>
+          <p>L'amministratore della squadra deve approvarla. Appena lo fa entri automaticamente e vedi le trasferte${kids.length ? " di " + esc(kids.length > 1 ? kids.slice(0, -1).join(", ") + " e " + kids[kids.length - 1] : kids[0]) : ""}: puoi chiudere l'app e riaprirla più tardi.</p>
+          <button class="btn-primary btn-block" data-act="wait-refresh">Controlla di nuovo</button>
+          <p class="small muted" style="margin:0">Ci mette troppo? Scrivi all'allenatore o a chi ti ha mandato il codice.</p>
+        </div>
+        <p class="small" style="text-align:center"><button class="btn-link" data-act="code-open">Ho un codice per un'altra squadra</button></p>
+      </div>` + footer();
+      clearInterval(S.waitPoll);
+      S.waitPoll = setInterval(async () => {
+        if ((location.hash || "#/") !== "#/" || !document.querySelector(".wait-card")) return clearInterval(S.waitPoll);
+        const { data } = await sb.from("team_members").select("team_id,status").eq("user_id", uid);
+        if ((data || []).some((m) => m.status === "active")) { clearInterval(S.waitPoll); toast("Richiesta approvata: benvenuto in squadra!"); viewHome(); }
+      }, 20000);
+      return;
+    }
     let teams = [], events = [], rides = [], bookings = [];
     if (ids.length) {
       teams = (await sb.from("teams").select("*").in("id", ids)).data || [];
@@ -1919,6 +1944,7 @@
       "landing-login": () => { store("it-splash", "1"); S.ui.otpPurpose = null; S.ui.loginFailed = false; S.ui.landing = "login"; viewLogin(); },
       "splash-go": () => { store("it-splash", "1"); S.ui.landing = "welcome"; viewLogin(); },
       "landing-back": () => { if (S.ui.otpPurpose) { S.ui.otpPurpose = null; S.ui.landing = "login"; return viewLogin(); } store("it-next", null); pendSet("it-pend", null); S.ui.landing = "welcome"; S.ui.inviteName = null; viewLogin(); },
+      "wait-refresh": () => viewHome(),
       "code-open": () => { S.ui.codeOpen = true; viewHome(); },
       "kid-more": () => { const box = b.closest(".kids"); const rows = box.querySelectorAll(".kid-row"); const last = rows[0]?.querySelector('input[name^="kl"]')?.value || ""; b.parentElement.insertAdjacentHTML("beforebegin", kidRow("", last, false)); box.querySelectorAll(".kid-row")[rows.length].querySelector("input").focus(); },
       "kid-more-multi": () => { const f = b.closest("form"); const box = f.querySelector(".kids-multi"); const i = box.querySelectorAll(".nk").length; const teams = f.dataset.codes.split(",").map((c) => ({ code: c, name: (S.ui.joinNames || {})[c] || c })); box.insertAdjacentHTML("beforeend", newKidCard(i, teams, S.profile.last_name, false)); box.querySelectorAll(".nk")[i].querySelector("input").focus(); },
