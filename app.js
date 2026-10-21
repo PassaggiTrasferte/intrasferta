@@ -1740,8 +1740,19 @@
     const ath = f.querySelectorAll('input[name="athlete"]:checked').length || (f.querySelector('input[name="athlete"]:not([type=checkbox])')?.value.trim() ? 1 : 0);
     const ad = Number(f.elements.adults?.value) || 0;
     const tot = ath + ad;
-    box.hidden = !ad;
-    box.innerHTML = `Servono <b>${tot} ${tot === 1 ? "posto" : "posti"}</b>: ${ath ? `${ath} ${ath === 1 ? "atleta" : "atleti"} + ` : "solo "}${ad} ${ad === 1 ? "adulto" : "adulti"}`;
+    const free = f.dataset.free != null ? Number(f.dataset.free) : null;
+    const over = free != null && tot > free;
+    box.hidden = !ad && !over;
+    box.classList.toggle("over", over);
+    box.innerHTML = over ? `Troppe persone: ${tot} su <b>${free} ${free === 1 ? "posto libero" : "posti liberi"}</b>. Togli qualcuno.`
+      : `Servono <b>${tot} ${tot === 1 ? "posto" : "posti"}</b>: ${ath ? `${ath} ${ath === 1 ? "atleta" : "atleti"} + ` : "solo "}${ad} ${ad === 1 ? "adulto" : "adulti"}`;
+    // con i posti già esauriti non si possono aggiungere altre persone
+    if (free != null) {
+      const full = tot >= free;
+      const inc = f.querySelector('[data-act="adults-inc"]'); if (inc) inc.disabled = full;
+      f.querySelectorAll('input[name="athlete"][type=checkbox]').forEach((c) => { if (!c.checked) { c.disabled = full; c.closest("label")?.classList.toggle("is-off", full); } });
+      const sub = f.querySelector('button[type="submit"]'); if (sub) sub.disabled = over || !tot;
+    }
   }
   const driverPhone = (r) => r.driver_phone || (r.kind === "parent" ? member(r.created_by).phone : "") || "";
 
@@ -1755,7 +1766,7 @@
         const qn = (q.no_athlete ? 0 : 1) + qa;
         return `<li class="req"><div class="req-main"><b>${paxName(q, q.requested_by)}</b>${adultsTag(qa, q.no_athlete)}
             <div class="req-meta">${qn > 1 ? `<span class="tag">${qn} posti</span>` : ""}${dir ? `<span class="tag">${esc(dir.charAt(0).toUpperCase() + dir.slice(1))}</span>` : ""}${q.depart_from ? `<span class="tag">da ${esc(q.depart_from)}</span>` : ""}<span>chiesto da ${mineQ ? "te" : esc(firstName(member(q.requested_by).name))}</span></div></div>
-          <div class="req-act">${!mineQ ? `<button class="btn-ok btn-sm" data-act="take" data-id="${q.id}">Lo porto io</button>` : ""}${mineQ || isAdmin() ? `<button class="btn-link danger" data-act="del-req" data-id="${q.id}">Ritira</button>` : ""}</div></li>`;
+          <div class="req-act">${!mineQ && S.ui.takeNew !== q.id ? `<button class="btn-ok btn-sm" data-act="take" data-id="${q.id}">Lo porto io</button>` : ""}${mineQ || isAdmin() ? `<button class="btn-link danger" data-act="del-req" data-id="${q.id}">Ritira</button>` : ""}</div>${S.ui.takeNew === q.id ? takeNewForm(q, e) : ""}</li>`;
       }).join("")}</ul>${reqs.length > 3 ? `<button class="btn-link" data-act="all-reqs" data-id="${e.id}">${(S.ui.allReqs || {})[e.id] ? "Mostra meno" : `Mostra altre ${reqs.length - 3} richieste`}</button>` : ""}</div>`;
   }
 
@@ -1772,6 +1783,22 @@
       <label>Serve per<select name="direction"><option value="ar">andata e ritorno</option><option value="andata">solo andata</option><option value="ritorno">solo ritorno</option></select></label>
       <label class="full">Da dove parte<input name="from" maxlength="120" placeholder="Es. Buccinasco"></label>
       <div class="actions"><button class="btn-primary" type="submit">Pubblica la richiesta</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
+    </form>`;
+  }
+
+  // «Lo porto io» senza aver ancora offerto l'auto: si pubblica l'auto e si porta subito chi ha chiesto
+  function takeNewForm(q, e) {
+    const need = (q.no_athlete ? 0 : 1) + (Number(q.adults) || 0);
+    const who = q.no_athlete ? (need === 1 ? "1 adulto" : need + " adulti") : esc(q.athlete_name) + (Number(q.adults) ? ` e ${q.adults === 1 ? "1 adulto" : q.adults + " adulti"}` : "");
+    return `<form class="form take-new" data-form="take-new" data-id="${q.id}" data-event="${e.id}">
+      <div class="full"><b>Porti ${who}</b><div class="small muted">Pubblichiamo la tua auto per questa trasferta e ci mettiamo subito dentro chi ha chiesto.</div></div>
+      <label>Posti in auto<select name="seats">${[1, 2, 3, 4, 5, 6, 7, 8].filter((n) => n >= need).map((n) => `<option ${n === need ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label>Orario partenza<input name="time" type="time" required></label>
+      <label class="full">Punto di partenza<input name="from" required maxlength="120" value="${esc(q.depart_from || "")}" placeholder="Es. parcheggio del palazzetto"></label>
+      ${S.profile.phone ? "" : `<label class="full">Il tuo cellulare (per WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" placeholder="333 1234567"></label>`}
+      <label class="full check"><input name="back" type="checkbox" ${q.direction === "andata" ? "" : "checked"}> Faccio anche il ritorno</label>
+      ${driverOk() ? "" : `<label class="full check declare"><input name="driver" type="checkbox" required> <span>Dichiaro di avere patente valida, auto con assicurazione RC in corso e revisione regolare, e di trasportare gli atleti rispettando il codice della strada, con cinture o seggiolini e senza superare i posti omologati. Il passaggio è gratuito e sotto la mia responsabilità. <small class="muted">Te lo chiediamo una volta a stagione · <a href="#/termini" target="_blank">Termini</a></small></span></label>`}
+      <div class="actions"><button class="btn-ok" type="submit">Lo porto io</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
     </form>`;
   }
 
@@ -1810,7 +1837,9 @@
     const all = roster().map((a) => a.name).filter((n) => !booked.has(n.toLowerCase()));
     const pick = !conv && mine.length;
     const kidsDone = !conv && !isAdmin() && S.athletesOk && myAthletes().length && !mine.length;
-    return `<form class="form" data-form="book" data-id="${r.id}">
+    const freeN = Math.max(0, r.seats - seatsOf(S.bookings.filter((b) => b.ride_id === r.id)));
+    return `<form class="form" data-form="book" data-id="${r.id}" data-free="${freeN}">
+      <div class="full small muted">Posti liberi su questo mezzo: <b>${freeN}</b></div>
       ${kidsDone ? `<div class="full small muted">I tuoi atleti hanno già un posto: puoi prenotare per uno o più adulti.</div>` : ""}
       ${kidsDone ? "" : pick ? kidPicker(mine, "Chi sale?") + (isAdmin() ? `<label class="full">Altro atleta della squadra (facoltativo)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Nome e cognome"><datalist id="dl-${r.id}">${all.filter((n) => !mine.includes(n)).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>` : "") : `<label>Atleta (facoltativo se salgono solo adulti)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Nome e cognome"><datalist id="dl-${r.id}">${(conv || isAdmin() ? all : mine).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>`}
       ${adultsField()}
@@ -2026,7 +2055,7 @@
 
   // ---------- azioni ----------
   async function reloadTeam() { await loadTeam(S.team.id); renderTeam(); }
-  const closeForms = () => { S.ui.offer = S.ui.book = S.ui.club = S.ui.editEvent = S.ui.newEvent = S.ui.confirm = S.ui.req = null; };
+  const closeForms = () => { S.ui.offer = S.ui.book = S.ui.club = S.ui.editEvent = S.ui.newEvent = S.ui.confirm = S.ui.req = S.ui.takeNew = null; };
 
   document.addEventListener("click", async (ev) => {
     const b = ev.target.closest("[data-act]"); if (!b) return;
@@ -2076,7 +2105,7 @@
       "splash-go": () => { store("it-splash", "1"); S.ui.landing = "welcome"; viewLogin(); },
       "landing-back": () => { if (S.ui.otpPurpose) { S.ui.otpPurpose = null; S.ui.landing = "login"; return viewLogin(); } store("it-next", null); pendSet("it-pend", null); S.ui.landing = "welcome"; S.ui.inviteName = null; viewLogin(); },
       "wait-refresh": () => viewHome(),
-      "adults-inc": () => { const f = b.form, i = f.elements.adults; i.value = Math.min(8, (Number(i.value) || 0) + 1); updSeatsSum(f); },
+      "adults-inc": () => { const f = b.form, i = f.elements.adults; const free = f.dataset.free != null ? Number(f.dataset.free) : 99; const ath = f.querySelectorAll('input[name="athlete"]:checked').length; i.value = Math.min(8, Math.max(0, free - ath), (Number(i.value) || 0) + 1); updSeatsSum(f); },
       "adults-dec": () => { const f = b.form, i = f.elements.adults; i.value = Math.max(0, (Number(i.value) || 0) - 1); updSeatsSum(f); },
       "code-open": () => { S.ui.codeOpen = true; viewHome(); },
       "kid-more": () => { const box = b.closest(".kids"); const rows = box.querySelectorAll(".kid-row"); const last = rows[0]?.querySelector('input[name^="kl"]')?.value || ""; b.parentElement.insertAdjacentHTML("beforebegin", kidRow("", last, false)); box.querySelectorAll(".kid-row")[rows.length].querySelector("input").focus(); },
@@ -2099,7 +2128,7 @@
       "edit-event": () => { closeForms(); S.ui.editEvent = id; renderTeam(); },
       "offer": () => { closeForms(); S.ui.offer = id; renderTeam(); },
       "club": () => { closeForms(); S.ui.club = id; renderTeam(); },
-      "book": () => { closeForms(); S.ui.book = id; renderTeam(); },
+      "book": () => { closeForms(); S.ui.book = id; renderTeam(); updSeatsSum(document.querySelector('[data-form="book"]')); },
       "req": () => { closeForms(); S.ui.req = id; renderTeam(); },
       "wa-close": () => { S.ui.wa = null; renderTeam(); },
       "toggle-past": () => { S.showPast = !S.showPast; renderTeam(); },
@@ -2165,6 +2194,8 @@
       }
       if (act === "take") {
         const q = S.requests.find((x) => x.id === id), e = q && S.events.find((x) => x.id === q.event_id);
+        const own = q && S.rides.some((r) => r.event_id === q.event_id && r.kind === "parent" && r.created_by === S.user.id);
+        if (!own) { closeForms(); S.ui.takeNew = id; renderTeam(); document.querySelector('[data-form="take-new"]')?.scrollIntoView({ block: "center", behavior: "smooth" }); return; }
         const { data, error } = await sb.rpc("take_request", { p_request: id }); if (error) throw error; toast("Atleta aggiunto alla tua auto");
         const r = data && S.rides.find((x) => x.id === data.ride_id);
         if (q && e) { const L = tripLabel(e), m = member(q.requested_by); S.ui.wa = [{ to: firstName(m.name), phone: m.phone, text: `Ciao ${firstName(m.name)}, porto io ${q.athlete_name} a ${L.trip} (${L.d}). Parto da ${r ? r.depart_from || "—" : "—"}${r && r.depart_time ? " alle " + r.depart_time : ""}.` }]; }
@@ -2394,6 +2425,23 @@
         const ev = S.events.find((x) => x.id === f.dataset.id);
         if (nr && ev && ev.place && v("from")) estimateKm(v("from"), ev.place).then(async (km) => { if (km != null) { await sb.rpc("set_ride_km", { p_ride: nr.id, p_km: km }); if (S.team && !anyFormOpen()) reloadTeam(); } });
       }
+      if (kind === "take-new") {
+        const q = S.requests.find((x) => x.id === f.dataset.id), e = S.events.find((x) => x.id === f.dataset.event);
+        if (!q) { toast("La richiesta non c'è più"); S.ui.takeNew = null; await reloadTeam(); return; }
+        const phone = v("phone") || S.profile.phone || "";
+        if (!telOk(phone)) { toast("Scrivi un numero di cellulare valido"); if (btn) btn.disabled = false; return; }
+        if (!driverOk()) { if (fd.get("driver") !== "on") { toast("Per offrire un passaggio serve la dichiarazione del conducente"); if (btn) btn.disabled = false; return; } await saveConsent("driver", true, season()); }
+        const { data: nr, error } = await sb.from("rides").insert({ event_id: q.event_id, team_id: q.team_id, kind: "parent", driver_user_id: S.user.id, driver_name: S.profile.display_name, driver_phone: phone, seats: Number(v("seats")), depart_time: v("time"), depart_from: v("from"), notes: "", return_trip: fd.get("back") === "on", created_by: S.user.id }).select("id").single();
+        if (error) throw error;
+        if (v("phone") && !S.profile.phone) { S.profile.phone = v("phone"); sb.from("profiles").update({ phone: v("phone") }).eq("id", S.user.id).then(() => {}); }
+        const t = await sb.rpc("take_request", { p_request: q.id });
+        S.ui.takeNew = null;
+        if (t.error) { toast("Auto pubblicata, ma la richiesta non è più disponibile"); await reloadTeam(); return; }
+        toast("Fatto: la tua auto è pubblicata e porti tu " + (q.no_athlete ? "gli adulti" : q.athlete_name));
+        if (e) { const L = tripLabel(e), m = member(q.requested_by); S.ui.wa = [{ to: firstName(m.name), phone: m.phone, text: `Ciao ${firstName(m.name)}, porto io ${q.no_athlete ? "voi" : q.athlete_name} a ${L.trip} (${L.d}). Parto da ${v("from") || "—"}${v("time") ? " alle " + v("time") : ""}.` }]; }
+        if (nr && e && e.place && v("from")) estimateKm(v("from"), e.place).then(async (km) => { if (km != null) { await sb.rpc("set_ride_km", { p_ride: nr.id, p_km: km }); } });
+        await reloadTeam(); return;
+      }
       if (kind === "req") {
         const who = fd.getAll("athlete").map((x) => String(x).trim()).filter(Boolean);
         const adQ = Math.max(0, Math.min(8, Number(v("adults")) || 0));
@@ -2421,6 +2469,8 @@
         const who = fd.getAll("athlete").map((x) => String(x).trim()).filter(Boolean);
         const adB = Math.max(0, Math.min(8, Number(v("adults")) || 0));
         if (!who.length && !adB) { toast("Scegli chi sale, o indica quanti adulti"); if (btn) btn.disabled = false; return; }
+        const freeB = f.dataset.free != null ? Number(f.dataset.free) : 99;
+        if (who.length + adB > freeB) { toast(`Posti insufficienti: ${who.length + adB} persone su ${freeB} ${freeB === 1 ? "posto libero" : "posti liberi"}`); if (btn) btn.disabled = false; return; }
         if (!who.length) who.push(""); // solo adulti
         const done = [];
         try { for (const a of who) { const args = { p_ride: f.dataset.id, p_athlete: a, p_pickup: v("pickup") }; if (adB && !done.length) args.p_adults = adB; const { error } = await sb.rpc("book_seat", args); if (error) throw error; done.push(a); } }

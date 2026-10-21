@@ -501,3 +501,9 @@ body.has-bnav{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 .stepper input::-webkit-inner-spin-button,.stepper input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .seats-sum{background:var(--accent-soft);color:var(--accent-text);border-radius:10px;padding:9px 12px;font-size:.9rem;font-weight:600}
 .chip.ad{background:#FDF0D5;color:#8A5A00;font-size:.75rem;padding:2px 8px;vertical-align:middle}
+.seats-sum.over{background:#FDE8E8;color:#B42318}
+.pill.is-off{opacity:.45}
+.step-btn:disabled{opacity:.35;cursor:not-allowed}
+/* «Lo porto io» con auto da pubblicare: il modulo occupa tutta la larghezza della richiesta */
+.req{flex-wrap:wrap}
+.req .take-new{flex:1 0 100%;margin-top:10px;padding-top:12px;border-top:1px solid var(--line)}
