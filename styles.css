@@ -465,3 +465,17 @@ body.has-bnav{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 .tile-ico{width:46px;height:46px;flex:none;border-radius:13px;background:var(--accent-soft);display:grid;place-items:center;font-size:1.4rem}
 .back-link{display:inline-block;color:var(--accent-text);font-weight:700;text-decoration:none;margin-bottom:-4px}
 @media print{.bnav{display:none!important}}
+
+/* barra di attività e pulsanti in attesa */
+@keyframes spin{to{transform:rotate(360deg)}}
+.boot::before{content:"";display:block;width:84px;height:84px;margin:0 auto 12px;box-sizing:border-box;border-radius:50%;border:3px solid var(--accent-soft);border-top-color:var(--brand);animation:spin .9s linear infinite}
+.boot{position:relative}
+.boot::after{content:"";position:absolute;left:50%;top:62px;width:56px;height:56px;margin-left:-28px;background:url(icon.svg) center/contain no-repeat;border-radius:14px}
+@media (prefers-reduced-motion:reduce){.boot::before,.wait-ring{animation-duration:2.5s}}
+
+/* finestra d'attesa: stessa icona con anello del caricamento */
+.wait-ov{position:fixed;inset:0;z-index:90;display:grid;place-items:center;background:rgba(22,32,46,.18);opacity:0;pointer-events:none;transition:opacity .15s}
+.wait-ov.on{opacity:1;pointer-events:auto}
+.wait-box{position:relative;width:96px;height:96px;border-radius:24px;background:#fff;box-shadow:0 10px 30px rgba(22,32,46,.22);display:grid;place-items:center}
+.wait-box img{border-radius:13px;position:relative}
+.wait-ring{position:absolute;left:50%;top:50%;width:76px;height:76px;margin:-38px 0 0 -38px;border-radius:50%;border:3px solid var(--accent-soft);border-top-color:var(--brand);animation:spin .9s linear infinite}

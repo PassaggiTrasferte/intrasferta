@@ -7,6 +7,27 @@
   const SPORTS = window.SPORTS, SPORT_ORDER = window.SPORT_ORDER;
   const $app = document.getElementById("app");
 
+  // ---------- attesa: icona ferma con anello verde che gira, in ogni attesa del database ----------
+  const waitOv = document.createElement("div"); waitOv.className = "wait-ov"; waitOv.setAttribute("role", "status"); waitOv.setAttribute("aria-label", "Caricamento in corso");
+  waitOv.innerHTML = `<div class="wait-box"><span class="wait-ring"></span><img src="icon.svg" alt="" width="52" height="52"></div>`;
+  document.body.appendChild(waitOv);
+  let waitN = 0, waitT = null;
+  const waiting = (d) => {
+    waitN = Math.max(0, waitN + d); clearTimeout(waitT);
+    // compare solo se l'attesa supera un attimo; non serve dove c'è già la schermata di caricamento
+    if (waitN) waitT = setTimeout(() => { if (!document.querySelector(".boot")) waitOv.classList.add("on"); }, 350);
+    else waitOv.classList.remove("on");
+  };
+  const fetch0 = window.fetch.bind(window);
+  window.fetch = (...a) => {
+    const url = String((a[0] && a[0].url) || a[0] || "");
+    const track = !!CFG.SUPABASE_URL && url.startsWith(CFG.SUPABASE_URL) && !/\/realtime\//.test(url) && !window.__bgLoad;
+    if (track) waiting(1);
+    const pr = fetch0(...a);
+    return track ? pr.finally(() => waiting(-1)) : pr;
+  };
+
+
   // ---------- utilità ----------
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const DOW = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
@@ -1003,7 +1024,8 @@
   async function viewProfile(fresh) {
     unsubscribe();
     if (fresh || !S.myTeams) { try { await loadKidsCtx(); } catch (e) { /* mostra il resto del profilo */ } }
-    $app.innerHTML = topBar({ title: "Profilo", back: "#/" }) + `<div class="wrap narrow">
+    const navTeam = S.team && S.team.id;
+    $app.innerHTML = topBar({ title: "Profilo", back: navTeam ? "" : "#/" }) + `<div class="wrap narrow">
       <form class="card form" data-form="profile-name">
         <label>Nome<input name="first" required maxlength="40" autocomplete="given-name" value="${esc(S.profile.first_name || firstName(S.profile.display_name))}"></label>
         <label>Cognome<input name="last" ${S.myKids === null ? "" : "required"} maxlength="40" autocomplete="family-name" value="${esc(S.profile.last_name || "")}"></label>
@@ -1027,7 +1049,8 @@
           <div class="row"><button class="btn-link danger" data-act="logout">Sì, esci</button><button class="btn-link" data-act="logout-cancel">No, resta collegato</button></div>`
         : `<div class="muted">Resti collegato su questo dispositivo finché non esci.</div><div><button class="btn-link danger" data-act="logout-ask">Esci dall'account</button></div>`}
       </div>
-    </div>` + footer();
+    </div>` + footer() + (navTeam ? bottomNav(navTeam, "profilo") : "");
+    if (navTeam) document.body.classList.add("has-bnav");
   }
 
   function privacyCard() {
@@ -1233,10 +1256,22 @@
       $app.innerHTML = topBar({ title: "…", back: "#/" }) + `<div class="wrap"><div class="boot">Carico la squadra…</div></div>`;
       try { const ok = await loadTeam(id); if (!ok) { $app.innerHTML = topBar({ title: "Squadra", back: "#/" }) + `<div class="wrap"><div class="empty"><strong>Squadra non disponibile</strong>Non fai parte di questa squadra, oppure la tua richiesta è ancora in attesa di approvazione.</div></div>`; return; } }
       catch (e) { toast(errMsg(e)); return; }
-      subscribe(id);
-    } else if (!anyFormOpen()) {
-      try { await loadTeam(id); } catch (e) { /* mostra i dati già caricati */ }
+      subscribe(id); S.teamLoadedAt = Date.now();
+    } else {
+      // stessa squadra: si mostra subito la sezione con i dati già in memoria (aggiornati in tempo reale);
+      // se sono passati più di 30 secondi si ricaricano in sottofondo
       if (!S.team) { location.hash = "#/"; return; }
+      const changed = S.lastTab !== tab; S.lastTab = tab;
+      renderTeam();
+      if (changed) window.scrollTo(0, 0);
+      if (Date.now() - (S.teamLoadedAt || 0) > 30000 && !anyFormOpen()) {
+        S.teamLoadedAt = Date.now();
+        const tab0 = currentTab;
+        window.__bgLoad = true;
+        const done = () => { window.__bgLoad = false; };
+        loadTeam(id).then(() => { done(); if (S.loadedTeam === id && currentTab === tab0 && !anyFormOpen() && S.team) renderTeam(); }, done);
+      }
+      return;
     }
     renderTeam();
   }
@@ -1265,13 +1300,14 @@
     return tabs;
   }
   const GEST_SUB = ["impostazioni", "mezzi", "report", "sponsor"];
-  const NAV_ICO = { trasferte: "🚗", membri: "👥", invita: "➕", risparmio: "🌱", gestisci: "⚙️" };
-  function bottomNav(teamId) {
+  const NAV_ICO = { trasferte: "🚗", membri: "👥", invita: "➕", risparmio: "🌱", gestisci: "⚙️", profilo: "👤" };
+  function bottomNav(teamId, active) {
     const adm = adminTeamIds().length > 0;
-    const items = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"], adm ? ["gestisci", "Gestisci"] : ["risparmio", "Risparmio"]];
-    const act = GEST_SUB.includes(currentTab) || (adm && currentTab === "risparmio") ? "gestisci" : currentTab;
+    const items = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"], adm ? ["gestisci", "Gestisci"] : ["risparmio", "Risparmio"], ["profilo", "Profilo"]];
+    const cur = active || currentTab;
+    const act = GEST_SUB.includes(cur) || (adm && cur === "risparmio") ? "gestisci" : cur;
     const pend = isAdmin() ? (S.members || []).filter((m) => m.status === "pending").length : 0;
-    return `<nav class="bnav noprint" aria-label="Sezioni squadra">${items.map(([k, l]) => `<a href="#/t/${teamId}/${k}" ${k === act ? 'aria-current="page"' : ""}><span class="bnav-ico" aria-hidden="true">${NAV_ICO[k]}</span>${l}${k === "membri" && pend ? `<b class="bnav-dot" aria-label="${pend} in attesa">${pend}</b>` : ""}</a>`).join("")}</nav>`;
+    return `<nav class="bnav noprint" aria-label="Sezioni">${items.map(([k, l]) => `<a href="${k === "profilo" ? "#/profilo" : `#/t/${teamId}/${k}`}" ${k === act ? 'aria-current="page"' : ""}><span class="bnav-ico" aria-hidden="true">${NAV_ICO[k]}</span>${l}${k === "membri" && pend ? `<b class="bnav-dot" aria-label="${pend} in attesa">${pend}</b>` : ""}</a>`).join("")}</nav>`;
   }
   function tabManage() {
     const tid = S.team.id, pr = adminTeamIds().some((x) => premium(teamById(x)));
@@ -1510,6 +1546,27 @@
   }
   document.addEventListener("click", (ev) => { const a = ev.target.closest("a[data-sp]"); if (a && S.team) sb.rpc("sponsor_hit", { p_sponsor: a.dataset.sp, p_team: S.team.id, p_kind: "click" }).then(() => {}, () => {}); });
 
+  // banner sponsor: ridimensiona al massimo a 1600 px di larghezza (nitida anche sugli schermi retina,
+  // il banner è largo al più 760 px) e ricodifica in WEBP/JPEG di alta qualità; tiene l'originale se è già più leggero
+  const fmtSize = (b) => b >= 1048576 ? (b / 1048576).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
+  async function optimizeImage(file) {
+    const MAXW = 1600, Q = 0.88;
+    let bmp;
+    try { bmp = await createImageBitmap(file, { imageOrientation: "from-image" }); } catch (e) { return file; }
+    const k = Math.min(1, MAXW / bmp.width), w = Math.round(bmp.width * k), h = Math.round(bmp.height * k);
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+    const cx = cv.getContext("2d"); cx.imageSmoothingQuality = "high"; cx.drawImage(bmp, 0, 0, w, h);
+    // trasparenza (loghi PNG/WEBP): va conservata
+    let alpha = false;
+    if (file.type !== "image/jpeg") { const d = cx.getImageData(0, 0, w, h).data; for (let i = 3; i < d.length; i += 16) if (d[i] < 250) { alpha = true; break; } }
+    const enc = (type, q) => new Promise((r) => cv.toBlob((b) => r(b && b.type === type ? b : null), type, q));
+    let out = await enc("image/webp", Q);
+    if (!out) out = alpha ? await enc("image/png") : await enc("image/jpeg", Q);
+    if (!out) return file;
+    // se l'originale non andava ridimensionato ed è già più leggero, si tiene quello
+    if (k === 1 && file.size <= out.size) return file;
+    return new File([out], "banner." + (out.type.split("/")[1] || "jpg"), { type: out.type });
+  }
   function sponsorForm(sp, scope) {
     const sports = sp?.sports || [];
     return `<form class="card form" data-form="sponsor" data-scope="${scope}" data-id="${sp ? sp.id : ""}">
@@ -1517,8 +1574,8 @@
       <label class="full">Nome<input name="name" required minlength="2" maxlength="80" value="${esc(sp?.name || "")}" placeholder="Es. Pizzeria Da Mario"></label>
       <label class="full">Messaggio breve (facoltativo)<input name="message" maxlength="140" value="${esc(sp?.message || "")}" placeholder="Es. Sconto 10% per le famiglie della squadra"></label>
       <label class="full">Sito o pagina (facoltativo)<input name="link" type="url" maxlength="300" value="${esc(sp?.link_url || "")}" placeholder="https://…"></label>
-      <label class="full">Banner: immagine o video orizzontale<input name="logo" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm"></label>
-      <div class="full small muted">Formato consigliato 3:1, per esempio 1200×400 pixel. Immagine (PNG, JPG, WEBP, GIF) fino a 2 MB, video MP4 o WEBM fino a 8 MB, senza audio (viene riprodotto muto).</div>
+      <label class="full">Banner: immagine orizzontale<input name="logo" type="file" accept="image/png,image/jpeg,image/webp"></label>
+      <div class="full small muted">Formato consigliato 3:1, per esempio 1500×500 pixel. JPG, PNG o WEBP: la ottimizziamo noi per caricarsi veloce sul telefono, senza perdere qualità visibile.</div>
       ${sp?.logo_path ? `<div class="full small muted">Banner attuale: ${isVideo(sp) ? `<video src="${esc(logoUrl(sp.logo_path))}" muted preload="metadata" class="sp-prev"></video>` : `<img src="${esc(logoUrl(sp.logo_path))}" alt="" class="sp-prev">`} (carica un file solo per sostituirlo)</div>` : ""}
       <label>Secondi di visualizzazione<input name="seconds" type="number" min="3" max="60" step="1" value="${esc(String(sp?.seconds || 6))}"></label>
       ${scope === "platform" ? `<div class="full stack" style="gap:8px"><div class="label">Sport in cui mostrarlo (nessuno selezionato = tutti)</div>
@@ -2011,7 +2068,7 @@
     if (simple[act]) return simple[act]();
     if (act.startsWith("ask-")) { const map = { "ask-del-event": "event:" + id, "ask-del-ride": "ride:" + id, "ask-remove-member": "member:" + id, "ask-leave": "leave", "ask-regen": "regen", "ask-veh-del": "veh:" + id, "ask-del-team": "del-team" }; S.ui.confirm = map[act]; return renderTeam(); }
 
-    b.disabled = true;
+    b.disabled = true; if (b.tagName === "BUTTON") b.classList.add("is-busy");
     try {
       if (act === "logout-ask") { S.ui.confirmLogout = true; viewProfile(); return; }
       if (act === "logout-cancel") { S.ui.confirmLogout = false; viewProfile(); return; }
@@ -2110,7 +2167,7 @@
     const f = ev.target; ev.preventDefault();
     const kind = f.dataset.form; if (!kind) return;
     const fd = new FormData(f); const v = (k) => String(fd.get(k) ?? "").trim();
-    const btn = f.querySelector('button[type="submit"]'); if (btn) btn.disabled = true;
+    const btn = f.querySelector('button[type="submit"]'); if (btn) { btn.disabled = true; btn.classList.add("is-busy"); }
     try {
       if (kind === "onb-kids") {
         const kids = onbReadKids(f).filter((k) => k.first || k.last);
@@ -2305,18 +2362,22 @@
       }
       if (kind === "sponsor") {
         const scope = f.dataset.scope, file = fd.get("logo");
-        const vid = !!(file && file.size && /^video\//.test(file.type));
-        if (file && file.size && !/^(image\/(png|jpeg|webp|gif)|video\/(mp4|webm))$/.test(file.type)) { toast("Formato non supportato: usa PNG, JPG, WEBP, GIF, MP4 o WEBM"); if (btn) btn.disabled = false; return; }
-        if (file && file.size > (vid ? 8 : 2) * 1048576) { toast(vid ? "Video troppo grande (max 8 MB)" : "Immagine troppo grande (max 2 MB)"); if (btn) btn.disabled = false; return; }
+        const vid = false;
+        if (file && file.size && !/^image\/(png|jpeg|webp)$/.test(file.type)) { toast("Formato non supportato: usa un'immagine JPG, PNG o WEBP"); if (btn) btn.disabled = false; return; }
+        if (file && file.size > 25 * 1048576) { toast("Immagine troppo grande (max 25 MB)"); if (btn) btn.disabled = false; return; }
         const link = v("link");
         if (link && !/^https?:\/\//i.test(link)) { toast("Il link deve iniziare con https://"); if (btn) btn.disabled = false; return; }
         const secs = Math.min(60, Math.max(3, Math.round(Number(v("seconds")) || 6)));
         const row = { name: v("name"), message: v("message"), link_url: link, starts_on: v("from") || null, ends_on: v("to") || null, active: fd.get("active") === "on", seconds: secs };
         if (scope === "platform") { const sp = fd.getAll("sports"); row.sports = sp.length ? sp : null; }
         if (file && file.size) {
-          const ext = (file.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5);
+          if (btn) { btn.classList.remove("is-busy"); btn.textContent = "Ottimizzo l'immagine…"; }
+          const img = await optimizeImage(file);
+          if (img.size > 2 * 1048576) { toast("Immagine ancora troppo pesante dopo l'ottimizzazione: prova con una più piccola"); if (btn) { btn.disabled = false; btn.textContent = f.dataset.id ? "Salva" : "Aggiungi sponsor"; } return; }
+          const ext = { "image/webp": "webp", "image/jpeg": "jpg", "image/png": "png" }[img.type] || "jpg";
           const path = (scope === "platform" ? "platform" : S.team.id) + "/" + (crypto.randomUUID ? crypto.randomUUID() : Date.now()) + "." + ext;
-          const up = await sb.storage.from("sponsor-logos").upload(path, file, { contentType: file.type, upsert: false });
+          const up = await sb.storage.from("sponsor-logos").upload(path, img, { contentType: img.type, upsert: false });
+          if (img !== file) toast(`Immagine ottimizzata: da ${fmtSize(file.size)} a ${fmtSize(img.size)}`);
           if (up.error) throw up.error;
           row.logo_path = path; row.media_type = vid ? "video" : "image";
         }
@@ -2336,7 +2397,7 @@
         const file = fd.get("file"); const text = v("text");
         if ((!file || !file.size) && !text) { toast("Carica un file o incolla il testo"); if (btn) btn.disabled = false; return; }
         if (file && file.size > 5 * 1024 * 1024) { toast("File troppo grande (max 5 MB)"); if (btn) btn.disabled = false; return; }
-        if (btn) btn.textContent = "Sto leggendo…";
+        if (btn) { btn.classList.remove("is-busy"); btn.textContent = "Sto leggendo…"; }
         const body = { team_id: TT.id, team_name: TT.name, sport: TT.sport, season: TT.season };
         if (file && file.size) { body.media_type = file.type; body.data = await fileToBase64(file); } else body.text = text;
         const { data, error } = await sb.functions.invoke("import-calendar", { body });
