@@ -471,7 +471,7 @@
         <button class="onb-btn onb-btn-top" type="submit">Entra</button>
         <p class="onb-small" style="margin-top:14px"><button type="button" class="btn-link" data-act="onb-login">Non la ricordi? Entra con un codice via email</button></p>
       </form>`,
-    loading: () => `<section class="onb"><div class="onb-mid"><div class="boot">Controllo l'invito…</div></div></section>`,
+    loading: () => `<section class="onb"><div class="onb-logo"><img src="logo.svg?v=gg1" alt="geniGO"></div><div class="onb-mid"><div class="boot">Controllo l'invito…</div></div></section>`,
     welcome: () => `<section class="onb">
         <div class="onb-logo"><img src="logo.svg?v=gg1" alt="geniGO"></div>
         <h1 class="onb-h onb-center">Chi sei?</h1>
@@ -740,8 +740,7 @@
   }
 
   function viewName() {
-    $app.innerHTML = `<div class="wrap narrow">
-      <h1>Come ti chiami?</h1>
+    $app.innerHTML = topBar({ title: "Come ti chiami?" }) + `<div class="wrap narrow">
       <form class="card form" data-form="profile-name">
         <label>Nome<input name="first" required maxlength="40" autocomplete="given-name" value="${esc(S.profile?.first_name || "")}"></label>
         <label>Cognome<input name="last" required maxlength="40" autocomplete="family-name" value="${esc(S.profile?.last_name || "")}"></label>
@@ -758,7 +757,7 @@
     (S.myKids || []).filter((k) => !k.last_name).forEach((k) => { const g = normN(k.first_name); (groups[g] = groups[g] || { first: k.first_name, ids: [] }).ids.push(k.id); });
     const me = !S.profile.last_name;
     $app.innerHTML = `<div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="fill-title">
-      <img src="icon.svg" alt="" width="56" height="56" class="modal-icon">
+      <div class="modal-brand"><img src="icon.svg" alt="" width="44" height="44"><img src="logo-dark.svg?v=gg1" alt="geniGO" class="modal-wordmark"></div>
       <h2 id="fill-title">Completa i cognomi</h2>
       <p style="margin:0">Ora nome e cognome sono separati: così si distinguono gli atleti con lo stesso nome e mamma e papà vedono le stesse prenotazioni.</p>
       <form class="form" data-form="fill-names">
@@ -843,8 +842,7 @@
       let names = [];
       try { names = ((await sb.from("teams").select("id,name").in("id", waiting.map((m) => m.team_id))).data || []).map((t) => t.name); } catch (e) { /* nomi non visibili prima dell'approvazione */ }
       const kids = (S.myKids || []).map((k) => k.first_name).filter(Boolean);
-      $app.innerHTML = topBar({}) + `<div class="wrap narrow">
-        <div><div class="muted">Ciao ${esc(firstName(S.profile.display_name))}</div><h1>Quasi dentro!</h1></div>
+      $app.innerHTML = topBar({ title: "Quasi dentro!" }) + `<div class="wrap narrow">
         <div class="card wait-card">
           <div class="wait-ico" aria-hidden="true">⏳</div>
           <h2>Richiesta inviata${names.length ? " a " + esc(names.join(" e ")) : ""}</h2>
@@ -887,8 +885,7 @@
         ${nextEv ? `<div class="small muted">Prossima: <b style="color:var(--ink)">${(() => { const p = dateParts(nextEv.starts_at); return `${p.dow} ${p.day} ${p.mon} · ${esc(nextEv.title)}`; })()}</b></div>` : ""}
       </a>`;
     }).join("");
-    $app.innerHTML = topBar({}) + `<div class="wrap">
-      <div><div class="muted">Ciao ${esc(S.profile.display_name.split(",")[0])}</div><h1>Le mie squadre</h1></div>
+    $app.innerHTML = topBar({ title: "Le mie squadre" }) + `<div class="wrap">
       ${pending.length ? `<div class="notice">Hai ${pending.length} richiest${pending.length === 1 ? "a" : "e"} in attesa di approvazione da parte dell'amministratore.</div>` : ""}
       ${cards || `<div class="intro"><h2>Benvenuto in geniGO</h2><div class="muted">Non sei ancora in nessuna squadra. Cosa vuoi fare?</div></div>`}
       ${!cards && !S.ui.codeOpen ? `<button class="choice" data-act="code-open"><b>Entra nella squadra del tuo atleta</b><span>Scrivi il codice che ti ha dato l'allenatore, oppure apri il link ricevuto</span></button>
@@ -1066,7 +1063,7 @@
       <div class="card"><div class="label">Altre squadre</div>
         ${S.ui.codeOpen ? `<form class="form" data-form="code-join"><label class="full">Codice d'invito<input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="Es. OLI-7K4M2"></label><div class="actions"><button class="btn-primary" type="submit">Continua</button><button class="btn-ghost" type="button" data-act="code-close-p">Annulla</button></div></form>`
           : `<div><button class="btn-ghost" data-act="code-open-p">Ho un codice d'invito</button></div>`}
-        <div class="small muted">Sei un allenatore o un dirigente? <a href="#/new">Registra una squadra</a></div></div>
+        ${Object.values(S.mesById || {}).some((m) => m && m.role === "admin") || (S.me && S.me.role === "admin") ? `<div class="small muted">Sei un allenatore o un dirigente? <a href="#/new">Registra una squadra</a></div>` : ""}</div>
       <a class="btn btn-ghost btn-block" href="#/">← Torna alle trasferte</a>
       ${S.platformAdmin ? `<a class="btn btn-primary btn-block" href="#/admin">Pannello di amministrazione</a>` : ""}
       ${privacyCard()}
@@ -1339,7 +1336,7 @@
   function tabManage() {
     const tid = S.team.id, pr = adminTeamIds().some((x) => premium(teamById(x)));
     const tile = (k, ico, t, d) => `<a class="tile-link" href="#/t/${tid}/${k}"><span class="tile-ico" aria-hidden="true">${ico}</span><span><b>${t}</b><small>${d}</small></span><i aria-hidden="true">›</i></a>`;
-    return `<h1 style="margin:0">Gestisci la squadra</h1><div class="tiles">
+    return `<div class="tiles">
       ${tile("impostazioni", "⚙️", "Squadra", "Nome, categoria, stagione, approvazione dei nuovi membri")}
       ${tile("mezzi", "🚐", "Mezzi della società", "Pulmini e auto della società con i loro posti")}
       ${pr ? tile("sponsor", "📣", "Sponsor", "Banner mostrati ai genitori") : ""}
@@ -1365,7 +1362,9 @@
     // sezione da amministratore aperta su una squadra dove non lo sei: passa a una tua squadra
     if (ADMIN_TABS.includes(currentTab) && !isAdmin()) { const a = adminTeamIds()[0]; if (a) { location.replace("#/t/" + a + "/" + currentTab); return; } currentTab = "trasferte"; }
     if (currentTab === "sponsor" && !premium()) { const a = adminTeamIds().find((tid) => premium(S.teamsById[tid])); if (a && a !== t.id) { location.replace("#/t/" + a + "/sponsor"); return; } }
-    const head = topBar({ teamId: t.id });
+    // titolo di ogni sezione nell'intestazione scura, centrato sotto il logo (uguale in tutte le pagine)
+    const TITLES = { trasferte: "Trasferte", membri: "Membri", invita: "Invita", risparmio: "Risparmio", gestisci: "Gestisci la squadra", impostazioni: "Squadra", mezzi: "Mezzi della società", report: "Report", sponsor: "Sponsor" };
+    const head = topBar({ teamId: t.id, title: TITLES[currentTab] });
     const fn = { trasferte: tabTrips, membri: tabMembers, invita: tabInvite, risparmio: tabSavings, mezzi: tabVehicles, report: tabReport, sponsor: tabSponsors, impostazioni: tabSettings, gestisci: tabManage }[currentTab];
     const sub = (GEST_SUB.includes(currentTab) || (currentTab === "risparmio" && adminTeamIds().length)) ? `<a class="back-link noprint" href="#/t/${t.id}/gestisci">‹ Gestisci</a>` : "";
     // trasferte e risparmio mostrano tutte le squadre; le altre sezioni solo la squadra aperta
