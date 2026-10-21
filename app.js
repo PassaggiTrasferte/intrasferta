@@ -729,7 +729,7 @@
 
   // ---------- router ----------
   async function route() {
-    document.body.classList.remove("dark"); // sfondo scuro solo per le pagine di benvenuto e accesso
+    document.body.classList.remove("dark", "has-bnav"); // sfondo scuro solo per le pagine di benvenuto e accesso
     const hash = location.hash || "#/";
     const p0 = hash.slice(2).split("/")[0];
     if (p0 === "termini" || p0 === "privacy") return viewLegal(p0);
@@ -1243,7 +1243,7 @@
 
   // squadre in cui l'utente è amministratore (tra quelle caricate)
   const adminTeamIds = () => (S.teamOrder || [S.team.id]).filter((tid) => { const m = (S.mesById || {})[tid] || (tid === S.team.id ? S.me : null); return m && m.role === "admin" && m.status === "active"; });
-  const ADMIN_TABS = ["mezzi", "report", "sponsor", "impostazioni"];
+  const ADMIN_TABS = ["mezzi", "report", "sponsor", "impostazioni", "gestisci"];
   const teamById = (tid) => (S.teamsById && S.teamsById[tid]) || (tid === S.team.id ? S.team : null);
   function targetTeam(needPremium) {
     let ids = adminTeamIds(); if (needPremium) ids = ids.filter((tid) => premium(teamById(tid)));
@@ -1256,14 +1256,33 @@
     const cur = targetTeam(needPremium).id;
     return `<label class="full">Squadra<select name="target-team" data-act-change="target-team">${ids.map((tid) => `<option value="${tid}" ${tid === cur ? "selected" : ""}>${esc(teamById(tid).name)}</option>`).join("")}</select></label>`;
   }
+  // barra in basso: 4 voci; per chi amministra «Gestisci» raccoglie squadra, mezzi, sponsor, risparmio e report
   function teamTabs() {
     const adm = adminTeamIds();
-    const tabs = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"]];
-    if (adm.length) tabs.push(["impostazioni", "Squadra"], ["mezzi", "Mezzi"]);
-    tabs.push(["risparmio", "Risparmio"]);
-    if (adm.length) tabs.push(["report", "Report"]);
+    const tabs = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"], ["risparmio", "Risparmio"]];
+    if (adm.length) tabs.push(["gestisci", "Gestisci"], ["impostazioni", "Squadra"], ["mezzi", "Mezzi"], ["report", "Report"]);
     if (adm.some((tid) => premium(S.teamsById ? S.teamsById[tid] : S.team))) tabs.push(["sponsor", "Sponsor"]);
     return tabs;
+  }
+  const GEST_SUB = ["impostazioni", "mezzi", "report", "sponsor"];
+  const NAV_ICO = { trasferte: "🚗", membri: "👥", invita: "➕", risparmio: "🌱", gestisci: "⚙️" };
+  function bottomNav(teamId) {
+    const adm = adminTeamIds().length > 0;
+    const items = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"], adm ? ["gestisci", "Gestisci"] : ["risparmio", "Risparmio"]];
+    const act = GEST_SUB.includes(currentTab) || (adm && currentTab === "risparmio") ? "gestisci" : currentTab;
+    const pend = isAdmin() ? (S.members || []).filter((m) => m.status === "pending").length : 0;
+    return `<nav class="bnav noprint" aria-label="Sezioni squadra">${items.map(([k, l]) => `<a href="#/t/${teamId}/${k}" ${k === act ? 'aria-current="page"' : ""}><span class="bnav-ico" aria-hidden="true">${NAV_ICO[k]}</span>${l}${k === "membri" && pend ? `<b class="bnav-dot" aria-label="${pend} in attesa">${pend}</b>` : ""}</a>`).join("")}</nav>`;
+  }
+  function tabManage() {
+    const tid = S.team.id, pr = adminTeamIds().some((x) => premium(teamById(x)));
+    const tile = (k, ico, t, d) => `<a class="tile-link" href="#/t/${tid}/${k}"><span class="tile-ico" aria-hidden="true">${ico}</span><span><b>${t}</b><small>${d}</small></span><i aria-hidden="true">›</i></a>`;
+    return `<h1 style="margin:0">Gestisci la squadra</h1><div class="tiles">
+      ${tile("impostazioni", "⚙️", "Squadra", "Nome, categoria, stagione, approvazione dei nuovi membri")}
+      ${tile("mezzi", "🚐", "Mezzi della società", "Pulmini e auto della società con i loro posti")}
+      ${pr ? tile("sponsor", "📣", "Sponsor", "Banner mostrati ai genitori") : ""}
+      ${tile("risparmio", "🌱", "Risparmio", "Km, euro e CO₂ evitati grazie ai passaggi condivisi")}
+      ${tile("report", "📊", "Report", "Riepilogo delle trasferte ed export per la società")}
+    </div>`;
   }
   // scelta della squadra nelle sezioni che riguardano una sola squadra
   function teamSwitch() {
@@ -1283,13 +1302,15 @@
     // sezione da amministratore aperta su una squadra dove non lo sei: passa a una tua squadra
     if (ADMIN_TABS.includes(currentTab) && !isAdmin()) { const a = adminTeamIds()[0]; if (a) { location.replace("#/t/" + a + "/" + currentTab); return; } currentTab = "trasferte"; }
     if (currentTab === "sponsor" && !premium()) { const a = adminTeamIds().find((tid) => premium(S.teamsById[tid])); if (a && a !== t.id) { location.replace("#/t/" + a + "/sponsor"); return; } }
-    const head = topBar({ tabs, active: currentTab, teamId: t.id });
-    const fn = { trasferte: tabTrips, membri: tabMembers, invita: tabInvite, risparmio: tabSavings, mezzi: tabVehicles, report: tabReport, sponsor: tabSponsors, impostazioni: tabSettings }[currentTab];
+    const head = topBar({ teamId: t.id });
+    const fn = { trasferte: tabTrips, membri: tabMembers, invita: tabInvite, risparmio: tabSavings, mezzi: tabVehicles, report: tabReport, sponsor: tabSponsors, impostazioni: tabSettings, gestisci: tabManage }[currentTab];
+    const sub = (GEST_SUB.includes(currentTab) || (currentTab === "risparmio" && adminTeamIds().length)) ? `<a class="back-link noprint" href="#/t/${t.id}/gestisci">‹ Gestisci</a>` : "";
     // trasferte e risparmio mostrano tutte le squadre; le altre sezioni solo la squadra aperta
-    const body = currentTab === "trasferte" || currentTab === "risparmio" ? fn() : teamSwitch() + withTeam(t.id, fn);
+    const body = sub + (currentTab === "trasferte" || currentTab === "risparmio" || currentTab === "gestisci" ? fn() : teamSwitch() + withTeam(t.id, fn));
     const y = window.scrollY;
     const curSp = document.querySelector(".sp-banner")?.dataset.cur;
-    $app.innerHTML = head + `<div class="wrap">${waPanel()}${body}</div>` + footer();
+    $app.innerHTML = head + `<div class="wrap">${waPanel()}${body}</div>` + footer() + bottomNav(t.id);
+    document.body.classList.add("has-bnav");
     window.scrollTo(0, y);
     if (currentTab === "invita") drawQR();
     if (curSp != null) { const nb = document.querySelector(".sp-banner"); if (nb) nb.dataset.cur = curSp; }
