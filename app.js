@@ -376,6 +376,8 @@
   }
   const onbBack = (act) => `<button type="button" class="onb-back" data-act="${act}" aria-label="Indietro"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>`;
   const onbLegal = `<p class="onb-legal">Continuando accetti i <a href="#/termini" target="_blank">Termini</a> e l'<a href="#/privacy" target="_blank">Informativa privacy</a></p>`;
+  const SPORT_EMOJI = { basket: "🏀", calcio: "⚽", volley: "🏐", rugby: "🏉", futsal: "🥅", waterpolo: "🤽", handball: "🤾", hockey: "🏑", baseball: "⚾", altro: "🏅" };
+  const onbWiz = (n) => `<ol class="onb-wiz" aria-label="Passo ${n} di 3">${["Sport", "La squadra", "Il tuo account"].map((l, i) => `<li class="${i + 1 < n ? "done" : i + 1 === n ? "on" : ""}">${i + 1}. ${l}</li>`).join("")}</ol>`;
   const onbTeams = (p) => `<div class="onb-chips">${(p.teams || []).map((t) => `<span class="onb-chip">${esc(t.name)}</span>`).join("")}</div>`;
   const onbKid = (i, k, teams) => `<div class="onb-group onb-kid" data-i="${i}">
       <label class="onb-line"><span>Nome</span><input name="kf${i}" maxlength="40" autocomplete="off" value="${esc(k.first || "")}" placeholder="Nome"></label>
@@ -416,17 +418,79 @@
         </div>
       </section>`;
     },
-    login: () => `<form class="onb" data-form="login-pw">
+    login: () => `<form class="onb" data-form="onb-login-code">
         ${onbBack("onb-login-back")}
         <h1 class="onb-h">Accedi</h1>
-        <p class="onb-sub">Bentornato! Entra con la tua email e la password.</p>
+        <p class="onb-sub">Bentornato! Scrivi la tua email: ti mandiamo un codice per entrare.</p>
+        <label class="onb-group"><input type="email" name="email" required autocomplete="email" placeholder="La tua email" value="${esc(S.ui.lastEmail || "")}"></label>
+        <button class="onb-btn onb-btn-top" type="submit">Mandami il codice</button>
+        <p class="onb-small onb-center" style="margin-top:18px">Hai impostato una password? <button type="button" class="btn-link" data-act="login-pw-open">Entra con la password</button></p>
+      </form>`,
+    loginpw: () => `<form class="onb" data-form="login-pw">
+        ${onbBack("login-code-open")}
+        <h1 class="onb-h">Entra con la password</h1>
+        <p class="onb-sub">Per chi ha impostato una password nel Profilo.</p>
         <label class="onb-group"><input type="email" name="email" required autocomplete="email" placeholder="La tua email" value="${esc(S.ui.lastEmail || "")}"></label>
         <label class="onb-group pw-wrap"><input type="password" name="password" required maxlength="72" autocomplete="current-password" placeholder="Password"><button type="button" class="btn-link pw-eye" data-act="pw-show">Mostra</button></label>
         <button class="onb-btn onb-btn-top" type="submit">Entra</button>
-        <div class="onb-group onb-help"><b>Non hai ancora una password o non la ricordi?</b>
-          <p>Ti mandiamo un codice alla tua email: lo inserisci e scegli la password.</p>
-          <button type="button" class="onb-btn onb-btn-light onb-btn-sm" data-act="pw-send-code">Mandami un codice</button></div>
+        <p class="onb-small onb-center" style="margin-top:18px">Non la ricordi? <button type="button" class="btn-link" data-act="login-code-open">Entra con un codice via email</button></p>
       </form>`,
+    otp: () => `<form class="onb" data-form="login-code">
+        ${onbBack("login-restart")}
+        <div class="onb-center onb-verify">
+          <p>Il codice per entrare è stato inviato a</p>
+          <p class="onb-mail">${esc(S.ui.loginEmail || "")}</p>
+          <input class="onb-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" maxlength="8" required placeholder="______" aria-label="Codice">
+        </div>
+        <div class="onb-foot"><button class="onb-btn" type="submit">Entra</button>
+          <p class="onb-small">Vale 15 minuti. Non è arrivato? Controlla nella posta indesiderata, oppure <button type="button" class="btn-link" data-act="login-resend">mandalo di nuovo</button>.</p></div>
+      </form>`,
+    clubsport: () => {
+      const c = pendGet("it-club") || {};
+      return `<form class="onb" data-form="onb-club-sport">
+        ${onbBack("landing-back")}
+        ${onbWiz(1)}
+        <h1 class="onb-h">Che sport fa la squadra?</h1>
+        <p class="onb-sub">Così geniGO usa le parole giuste: palestra o campo, inizio partita o calcio d'inizio.</p>
+        <div class="onb-sports" role="radiogroup" aria-label="Sport">${SPORT_ORDER.map((k) => `<button type="button" class="onb-sp ${c.sport === k ? "on" : ""}" role="radio" aria-checked="${c.sport === k}" data-act="club-sport" data-v="${k}"><span aria-hidden="true">${SPORT_EMOJI[k] || "🏅"}</span><b>${esc(SPORTS[k].label)}</b></button>`).join("")}</div>
+        <div class="onb-foot"><button class="onb-btn" type="submit" ${c.sport ? "" : "disabled"}>Avanti</button></div>
+      </form>`;
+    },
+    clubteam: () => {
+      const c = pendGet("it-club") || {}, L = SPORTS[c.sport] || SPORTS.altro;
+      return `<form class="onb" data-form="onb-club-team">
+        ${onbBack("club-to-sport")}
+        ${onbWiz(2)}
+        <h1 class="onb-h">La tua squadra</h1>
+        <div><span class="onb-spchip">${SPORT_EMOJI[c.sport] || "🏅"} ${esc(L.label)} <button type="button" class="btn-link" data-act="club-to-sport">cambia</button></span></div>
+        <label class="onb-group"><input name="name" required minlength="2" maxlength="80" autocomplete="off" placeholder="Nome della squadra (es. Urania Milano U17)" value="${esc(c.name || "")}"></label>
+        <div class="onb-row"><label class="onb-group"><input name="category" maxlength="40" autocomplete="off" placeholder="Categoria (es. U17)" value="${esc(c.category || "")}"></label>
+          <label class="onb-group"><input name="season" maxlength="20" autocomplete="off" placeholder="Stagione" value="${esc(c.season || season())}"></label></div>
+        <div class="onb-label">Tuo figlio gioca in questa squadra? (facoltativo)</div>
+        <div class="onb-row"><label class="onb-group"><input name="kf" maxlength="40" autocomplete="off" placeholder="Nome" value="${esc((c.kid || {}).first || "")}"></label>
+          <label class="onb-group"><input name="kl" maxlength="40" autocomplete="off" placeholder="Cognome" value="${esc((c.kid || {}).last || "")}"></label></div>
+        <div class="onb-box">I genitori vedranno: <b>${esc(L.place)}</b> · <b>${esc(L.time)}</b> · <b>${esc(L.event)}</b></div>
+        <label class="onb-check"><input type="checkbox" name="role-ok" required ${c.ok ? "checked" : ""}><span>Sono l'allenatore o un dirigente di questa squadra e accetto i <a href="#/termini" target="_blank">Termini</a> per le società: mezzi, autisti e coperture assicurative della società restano sotto la sua responsabilità.</span></label>
+        <p class="onb-note">Se tuo figlio è già in una squadra su geniGO, non crearne un'altra: chiedi il link all'allenatore.</p>
+        <div class="onb-foot"><button class="onb-btn" type="submit">Avanti</button></div>
+      </form>`;
+    },
+    clubalmost: () => {
+      const c = pendGet("it-club") || {};
+      return `<section class="onb">
+        ${onbBack("club-to-team")}
+        <div class="onb-mid onb-center">
+          <div class="onb-chips"><span class="onb-chip">${SPORT_EMOJI[c.sport] || "🏅"} ${esc(c.name || "")}</span></div>
+          <img src="icon.svg" alt="" width="132" height="132" class="onb-hero-icon">
+          <h1 class="onb-h onb-center">Ottimo!<br>Hai quasi finito…</h1>
+          <p class="onb-sub onb-center">Ti manca solo il tuo account personale: diventi l'amministratore della squadra.</p>
+        </div>
+        <div class="onb-foot">
+          <button class="onb-btn onb-btn-light" data-act="onb-signup">Crea il tuo account</button>
+          <p class="onb-small">Hai già un account? <button class="btn-link" data-act="landing-login">Accedi</button></p>
+        </div>
+      </section>`;
+    },
     loading: () => `<section class="onb"><div class="onb-mid"><div class="boot">Controllo l'invito…</div></div></section>`,
     welcome: () => `<section class="onb">
         <div class="onb-logo"><img src="logo.svg?v=gg1" alt="geniGO"></div>
@@ -477,21 +541,21 @@
       </section>`;
     },
     signup: () => {
-      const a = pendGet("it-acct") || {}, nx = store("it-next") || "", club = nx === "#/new", kid = nx.startsWith("#/genitore/");
+      const a = pendGet("it-acct") || {}, nx = store("it-next") || "", cp = pendGet("it-club"), club = !!(cp && cp.name), kid = nx.startsWith("#/genitore/");
       return `<form class="onb" data-form="onb-signup">
-        ${onbBack(club ? "landing-back" : kid ? "onb-to-kidinv" : "onb-to-almost")}
+        ${onbBack(club ? "club-to-almost" : kid ? "onb-to-kidinv" : "onb-to-almost")}
+        ${club ? onbWiz(3) : ""}
         <h1 class="onb-h">Crea account</h1>
-        <p class="onb-sub">${club ? "Poi registri la tua squadra e inviti i genitori." : "Così gli altri genitori della squadra ti riconoscono."}</p>
+        <p class="onb-sub">${club ? `Appena verifichi l'email la squadra ${esc(cp.name)} è pronta e ne diventi l'amministratore.` : "Così gli altri genitori della squadra ti riconoscono."}</p>
         <div class="onb-row"><label class="onb-group"><input name="first" required maxlength="40" autocomplete="given-name" placeholder="Nome" value="${esc(a.first || "")}"></label>
           <label class="onb-group"><input name="last" required maxlength="40" autocomplete="family-name" placeholder="Cognome" value="${esc(a.last || "")}"></label></div>
         <label class="onb-group"><input type="email" name="email" required autocomplete="email" placeholder="La tua email" value="${esc(a.email || S.ui.lastEmail || "")}"></label>
-        <label class="onb-group pw-wrap"><input type="password" name="pw1" required minlength="8" maxlength="72" autocomplete="new-password" placeholder="Scegli una password"><button type="button" class="btn-link pw-eye" data-act="pw-show">Mostra</button></label>
-        <div class="onb-rules pw-rules"><span data-r="len">○ almeno 8 caratteri</span> <span data-r="mix">○ lettere e numeri</span></div>
+        <p class="onb-note" style="margin:-4px 0 4px">Niente password da ricordare: ti mandiamo un codice ogni volta che entri da un nuovo telefono o computer.</p>
         <label class="onb-check"><input type="checkbox" name="terms" required ${a.terms ? "checked" : ""}><span>Accetto i <a href="#/termini" target="_blank">Termini d'uso</a> e l'<a href="#/privacy" target="_blank">Informativa privacy</a></span></label>
         <label class="onb-check"><input type="checkbox" name="parent" required ${a.parent ? "checked" : ""}><span>Sono il genitore, o chi ne fa le veci, dei ragazzi che inserisco</span></label>
         <label class="onb-switch"><input type="checkbox" name="news" ${a.news ? "checked" : ""}><span>Novità e consigli d'uso via email</span></label>
         <label class="onb-switch"><input type="checkbox" name="stats" ${a.stats ? "checked" : ""}><span>Statistiche d'uso anonime</span></label>
-        <div class="onb-foot"><button class="onb-btn" type="submit">Avanti</button>
+        <div class="onb-foot"><button class="onb-btn" type="submit">Mandami il codice</button>
           <p class="onb-small">Hai già un account? <button type="button" class="btn-link" data-act="landing-login">Accedi</button></p></div>
       </form>`;
     },
@@ -500,18 +564,19 @@
       return `<form class="onb" data-form="onb-verify">
         ${onbBack("onb-signup")}
         <div class="onb-center onb-verify">
-          <p>Il codice di verifica è stato inviato a</p>
+          <p>Il codice è stato inviato a</p>
           <p class="onb-mail">${esc(a.email || "")}</p>
           <input class="onb-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" maxlength="8" required placeholder="______" aria-label="Codice di verifica">
         </div>
-        <div class="onb-foot"><button class="onb-btn" type="submit">Avanti</button>
-          <p class="onb-small">Potrebbe servire qualche minuto. Controlla anche la posta indesiderata, oppure <button type="button" class="btn-link" data-act="onb-resend">mandalo di nuovo</button>.</p></div>
+        <div class="onb-foot"><button class="onb-btn" type="submit">Entra</button>
+          <p class="onb-small">Vale 15 minuti e potrebbe servire qualche istante. Controlla anche la posta indesiderata, oppure <button type="button" class="btn-link" data-act="onb-resend">mandalo di nuovo</button>.</p></div>
       </form>`;
     },
   };
   function onbAfter(step) {
     const f = document.querySelector(".onb input:not([type=checkbox])"); if (f && step !== "kids") setTimeout(() => f.focus(), 50);
   }
+  const clubPendForm = (f) => { const g = (n) => String(f.elements[n]?.value || "").trim(); return { name: g("name"), category: g("category"), season: g("season"), kid: g("kf") || g("kl") ? { first: g("kf"), last: g("kl") } : null, ok: !!f.elements["role-ok"]?.checked }; };
   // figli scritti nella schermata (per non perderli quando se ne aggiunge o toglie uno)
   function onbReadKids(form) {
     const p = pendGet("it-pend") || { teams: [] }, out = [];
@@ -531,6 +596,18 @@
       try { if (S.consents) { await saveConsent("terms", true); await saveConsent("parent", true); await saveConsent("news", !!a.news); await saveConsent("stats", !!a.stats); } } catch (e) { /* li chiederà la finestra dei consensi */ }
     }
     if (a) pendSet("it-acct", null);
+  }
+  // squadra scritta prima di creare l'account (percorso società/allenatore)
+  async function createPendingClub() {
+    const c = pendGet("it-club"); pendSet("it-club", null);
+    if (!c || !c.name) return false;
+    const { data, error } = await sb.rpc("create_team", { p_name: c.name, p_sport: c.sport || "basket", p_category: c.category || "", p_season: c.season || season(), p_athletes: "" });
+    if (error) throw error;
+    if (c.kid && c.kid.first && c.kid.last) { try { await addKids(data.id, [c.kid], []); await loadMyKids(); } catch (e) { toast(errMsg(e)); } }
+    try { await saveConsent("club", true, data.id); } catch (e) { /* registro facoltativo */ }
+    store("it-wizard-" + data.id, "2"); store("it-last-team", data.id); S.myTeams = null; S.memberships = null;
+    toast("Squadra creata"); location.hash = "#/t/" + data.id + "/trasferte";
+    return true;
   }
   async function joinPending() {
     const p = pendGet("it-pend"); pendSet("it-pend", null);
@@ -667,13 +744,14 @@
   function securityCard() {
     return `<form class="card form" data-form="change-pw" id="sicurezza">
       <div class="full label">Sicurezza</div>
-      <div class="full small">Accesso con <b>${esc(S.user.email || "")}</b></div>
-      ${pwField("pw1", "Nuova password")}
+      <div class="full small">Accesso con <b>${esc(S.user.email || "")}</b>: entri con un <b>codice via email</b> e resti collegato su questo dispositivo finché non esci.</div>
+      <div class="full"><b>Password (facoltativa)</b><div class="small muted">Se preferisci, imposta anche una password: potrai entrare con la password o con il codice.</div></div>
+      ${pwField("pw1", pwSet() ? "Nuova password" : "Password")}
       ${pwField("pw2", "Ripeti la nuova password")}
       ${pwRules()}
       ${S.ui.pwNonce ? `<label class="full">Codice ricevuto via email<input name="nonce" inputmode="numeric" autocomplete="one-time-code" required placeholder="123456"><span class="small muted" style="font-weight:400">Per sicurezza ti abbiamo mandato un codice a ${esc(S.user.email || "")}: inseriscilo per confermare.</span></label>`
         : `<p class="full small muted" style="margin:0">Se non entri da un po', per sicurezza ti mandiamo un codice via email prima di cambiarla.</p>`}
-      <div class="actions"><button class="btn-primary" type="submit">Cambia password</button></div>
+      <div class="actions"><button class="btn-primary" type="submit">${pwSet() ? "Cambia password" : "Imposta la password"}</button></div>
     </form>`;
   }
   // imposta la password; se Supabase chiede una verifica, manda il codice e la chiede
@@ -739,11 +817,12 @@
       toast(errMsg(e));
     }
     if (pendGet("it-acct")) await applyPending();
-    if (!pwSet() || store("it-forcepw") === "1") return viewSetPassword();
+    if (store("it-forcepw") === "1") return viewSetPassword(); // solo per chi ha chiesto di reimpostarla
     if (!consentsOk()) return viewConsents();
     if (!S.profile?.display_name) return viewName();
     if (S.myKids && (!S.profile.last_name || S.myKids.some((k) => !k.last_name))) return viewFillSurnames();
     logOpenOncePerDay();
+    if (pendGet("it-club") && pendGet("it-club").name) { try { if (await createPendingClub()) return; } catch (e) { toast(errMsg(e)); } }
     if (pendGet("it-pend") && (pendGet("it-pend").kids || []).length) { const h0 = location.hash; try { if (await joinPending() && location.hash !== h0) return; } catch (e) { toast(errMsg(e)); } }
     const next = store("it-next");
     if (next) { store("it-next", null); if (next !== hash) { location.hash = next; return; } }
@@ -1322,7 +1401,7 @@
       ${sponsorBanner()}
       ${S.ui.newEvent ? eventForm(null, L) : ""}
       ${S.ui.ai ? aiPanel() : ""}
-      ${up.length ? up.map((e) => withTeam(e.team_id, () => tripCard(e, false))).join("") : `<div class="empty"><strong>Nessuna trasferta in programma</strong>${admin ? "Aggiungi la prossima trasferta o importa il calendario." : "Quando l'amministratore aggiunge una trasferta, comparirà qui."}</div>`}
+      ${up.length ? `<div class="trips-label next">Prossima trasferta</div>` + up.map((e, i) => (i === 1 ? `<div class="trips-label">Più avanti · tocca per aprire</div>` : "") + withTeam(e.team_id, () => tripCard(e, false, i > 0))).join("") : `<div class="empty"><strong>Nessuna trasferta in programma</strong>${admin ? "Aggiungi la prossima trasferta o importa il calendario." : "Quando l'amministratore aggiunge una trasferta, comparirà qui."}</div>`}
       ${past.length ? `<button class="btn-link" data-act="toggle-past">${S.showPast ? "Nascondi" : "Mostra"} trasferte passate (${past.length})</button>${S.showPast ? past.map((e) => withTeam(e.team_id, () => tripCard(e, true))).join("") : ""}` : ""}`;
   }
 
@@ -1520,8 +1599,26 @@
     </form>`;
   }
 
-  function tripCard(e, isPast) {
+  // città dall'indirizzo, con le maiuscole giuste: "PALESTRA - Via X - DESIO - (MONZA BRIANZA)" → "Desio (Monza Brianza)"
+  const SMALL_WORDS = new Set(["di", "del", "della", "dei", "delle", "de", "da", "al", "alla", "sul", "sulla", "in", "e", "a"]);
+  const titleCase = (s) => String(s || "").toLowerCase().split(/(\s+)/).map((w, i) => (i > 0 && SMALL_WORDS.has(w)) ? w : w.replace(/(^|['’\-])(\p{L})/gu, (m, a, c) => a + c.toUpperCase())).join("");
+  function placeCity(place) {
+    const parts = String(place || "").split(/\s+-\s+/).map((x) => x.trim()).filter(Boolean);
+    const last = parts[parts.length - 1] || "";
+    if (/^\(.+\)$/.test(last) && parts.length >= 2) {
+      const city = parts[parts.length - 2], prov = last.slice(1, -1);
+      return titleCase(city) + (prov && prov.toLowerCase() !== city.toLowerCase() ? " (" + titleCase(prov) + ")" : "");
+    }
+    const c = String(place || "").split(",").map((x) => x.trim()).filter(Boolean);
+    if (c.length > 1) return titleCase(c[c.length - 1].replace(/\b\d{5}\b/, "").trim());
+    return "";
+  }
+  // le trasferte dopo la prima restano chiuse finché non si toccano (o finché c'è un modulo aperto)
+  const tripIsOpen = (e) => !!((S.ui.tripOpen || {})[e.id] || S.ui.offer === e.id || S.ui.req === e.id || S.ui.club === e.id || S.ui.editEvent === e.id
+    || S.ui.confirm === "event:" + e.id || S.rides.some((r) => r.event_id === e.id && (S.ui.book === r.id || S.ui.confirm === "ride:" + r.id)));
+  function tripCard(e, isPast, compact) {
     if (S.ui.editEvent === e.id) return eventForm(e, sportOf(S.team));
+    if (compact && !tripIsOpen(e)) return tripRow(e);
     const p = dateParts(e.starts_at);
     const rides = S.rides.filter((r) => r.event_id === e.id).sort((a, b) => (a.kind === "club" ? -1 : 0) - (b.kind === "club" ? -1 : 0));
     const bk = S.bookings.filter((b) => b.event_id === e.id);
@@ -1559,6 +1656,22 @@
           ? `<span class="confirm">Eliminare la trasferta con tutti i passaggi? <button class="btn-link danger" data-act="del-event" data-id="${e.id}">Sì, elimina</button><button class="btn-link" data-act="cancel">Annulla</button></span>`
           : `<button class="btn-link" data-act="edit-event" data-id="${e.id}">Modifica</button><button class="btn-link" data-act="ask-del-event" data-id="${e.id}">Elimina</button>`}</div>` : ""}
       </div></article>`;
+  }
+
+  function tripRow(e) {
+    const p = dateParts(e.starts_at);
+    const rides = S.rides.filter((r) => r.event_id === e.id);
+    const bk = S.bookings.filter((b) => b.event_id === e.id);
+    const free = Math.max(0, rides.reduce((a, r) => a + r.seats, 0) - bk.length);
+    const reqs = S.requests.filter((q) => q.event_id === e.id).length;
+    const city = placeCity(e.place);
+    const chips = (rides.length
+      ? `<span class="chip ${free ? "ok" : "warn"}">${free ? free + (free === 1 ? " posto libero" : " posti liberi") : "Tutto pieno"}</span>`
+      : `<span class="chip warn">Nessuna auto ancora</span>`) + (reqs ? `<span class="chip warn">${reqs === 1 ? "1 cerca un passaggio" : reqs + " cercano un passaggio"}</span>` : "");
+    return `<article class="trip trip-row" data-act="trip-open" data-id="${e.id}" role="button" tabindex="0" aria-label="Apri ${esc(e.title)}">
+      <div class="stub"><span class="cat" title="${esc(S.team.name)}">${esc(S.team.category || S.team.name)}</span><span class="dow">${p.dow}</span><span class="day">${p.day}</span><span class="mon">${p.mon}</span><span class="time">${p.time}</span></div>
+      <div class="tbody"><h2>${esc(e.title)}</h2>${city ? `<div class="city">📍 ${esc(city)}</div>` : ""}<div class="row">${chips}</div></div>
+      <span class="chev" aria-hidden="true">›</span></article>`;
   }
 
   function rideBlock(r, e, isPast) {
@@ -1894,6 +2007,7 @@
       "otp-login": () => { S.ui.lastEmail = document.querySelector('[data-form="login-pw"] input[name=email]')?.value || S.ui.lastEmail; S.ui.otpPurpose = "login"; S.ui.landing = "email"; viewLogin(); },
       "wiz-next": () => { store("it-wizard-" + S.team.id, "3"); location.hash = "#/t/" + S.team.id + "/invita"; },
       "wiz-done": () => { store("it-wizard-" + S.team.id, null); location.hash = "#/t/" + S.team.id + "/trasferte"; toast("Tutto pronto!"); },
+      "trip-open": () => { S.ui.tripOpen = { ...(S.ui.tripOpen || {}), [id]: true }; renderTeam(); },
       "steps-hide": () => { store("it-steps-hide-" + S.team.id, "1"); renderTeam(); },
       "tips-ok": () => { store("it-tips", "1"); renderTeam(); },
       "legal-open": () => { S.ui.legalOpen = b.dataset.v; viewConsents(); document.querySelector(".modal")?.scrollTo(0, 0); },
@@ -1901,9 +2015,19 @@
       "data-export": () => exportMyData(),
       "del-ask": () => { S.ui.confirmDelete = true; viewProfile(); },
       "del-cancel": () => { S.ui.confirmDelete = false; viewProfile(); },
-      "landing-create": () => { store("it-next", "#/new"); pendSet("it-pend", null); S.ui.landing = "signup"; viewLogin(); },
+      "landing-create": () => { store("it-next", null); pendSet("it-pend", null); if (!pendGet("it-club")) pendSet("it-club", { season: season() }); S.ui.landing = "clubsport"; viewLogin(); },
+      "club-sport": () => { const c = pendGet("it-club") || {}; c.sport = b.dataset.v; pendSet("it-club", c); viewLogin(); },
+      "club-to-sport": () => { const f = document.querySelector('[data-form="onb-club-team"]'); if (f) pendSet("it-club", { ...(pendGet("it-club") || {}), ...clubPendForm(f) }); S.ui.landing = "clubsport"; viewLogin(); },
+      "club-to-team": () => { S.ui.landing = "clubteam"; viewLogin(); },
+      "club-to-almost": () => { S.ui.landing = "clubalmost"; viewLogin(); },
+      "login-pw-open": () => { S.ui.lastEmail = document.querySelector('[data-form="onb-login-code"] input[name=email]')?.value || S.ui.lastEmail; S.ui.landing = "loginpw"; viewLogin(); },
+      "login-code-open": () => { S.ui.lastEmail = document.querySelector('[data-form="login-pw"] input[name=email]')?.value || S.ui.lastEmail; S.ui.landing = "login"; viewLogin(); },
+      "login-resend": async () => {
+        b.disabled = true; const { error } = await sb.auth.signInWithOtp({ email: S.ui.loginEmail, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: false } });
+        b.disabled = false; toast(error ? errMsg(error) : "Codice inviato di nuovo");
+      },
       "onb-to-code": () => { S.ui.landing = "code"; viewLogin(); },
-      "onb-login-back": () => { const p = pendGet("it-pend"), nx = store("it-next") || ""; S.ui.landing = nx.startsWith("#/genitore/") ? "kidinv" : p && (p.kids || []).length ? "almost" : "welcome"; viewLogin(); },
+      "onb-login-back": () => { const p = pendGet("it-pend"), c = pendGet("it-club"), nx = store("it-next") || ""; S.ui.landing = nx.startsWith("#/genitore/") ? "kidinv" : c && c.name ? "clubalmost" : p && (p.kids || []).length ? "almost" : "welcome"; viewLogin(); },
       "onb-to-kidinv": () => { S.ui.landing = "kidinv"; viewLogin(); },
       "onb-to-kids": () => { S.ui.landing = "kids"; viewLogin(); },
       "onb-to-almost": () => { S.ui.landing = pendGet("it-pend") ? "almost" : "welcome"; viewLogin(); },
@@ -1912,13 +2036,13 @@
       "onb-kid-del": () => { const f = document.querySelector('[data-form="onb-kids"]'); const p = pendGet("it-pend"); p.kids = onbReadKids(f); p.kids.splice(Number(b.dataset.i), 1); pendSet("it-pend", p); viewLogin(); },
       "onb-resend": async () => {
         const a = pendGet("it-acct"); if (!a) return;
-        b.disabled = true; const { error } = await sb.auth.resend({ type: "signup", email: a.email, options: { emailRedirectTo: location.origin + location.pathname } });
+        b.disabled = true; const { error } = await sb.auth.signInWithOtp({ email: a.email, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: true, data: { first_name: a.first, last_name: a.last } } });
         b.disabled = false; toast(error ? errMsg(error) : "Codice inviato di nuovo");
       },
       "landing-join": () => { store("it-next", null); S.ui.landing = pendGet("it-pend") ? "kids" : "code"; viewLogin(); },
       "landing-login": () => { store("it-splash", "1"); S.ui.otpPurpose = null; S.ui.loginFailed = false; S.ui.landing = "login"; viewLogin(); },
       "splash-go": () => { store("it-splash", "1"); S.ui.landing = "welcome"; viewLogin(); },
-      "landing-back": () => { if (S.ui.otpPurpose) { S.ui.otpPurpose = null; S.ui.landing = "login"; return viewLogin(); } store("it-next", null); pendSet("it-pend", null); S.ui.landing = "welcome"; S.ui.inviteName = null; viewLogin(); },
+      "landing-back": () => { if (S.ui.otpPurpose) { S.ui.otpPurpose = null; S.ui.landing = "login"; return viewLogin(); } store("it-next", null); pendSet("it-pend", null); pendSet("it-club", null); S.ui.landing = "welcome"; S.ui.inviteName = null; viewLogin(); },
       "code-open": () => { S.ui.codeOpen = true; viewHome(); },
       "kid-more": () => { const box = b.closest(".kids"); const rows = box.querySelectorAll(".kid-row"); const last = rows[0]?.querySelector('input[name^="kl"]')?.value || ""; b.parentElement.insertAdjacentHTML("beforebegin", kidRow("", last, false)); box.querySelectorAll(".kid-row")[rows.length].querySelector("input").focus(); },
       "kid-more-multi": () => { const f = b.closest("form"); const box = f.querySelector(".kids-multi"); const i = box.querySelectorAll(".nk").length; const teams = f.dataset.codes.split(",").map((c) => ({ code: c, name: (S.ui.joinNames || {})[c] || c })); box.insertAdjacentHTML("beforeend", newKidCard(i, teams, S.profile.last_name, false)); box.querySelectorAll(".nk")[i].querySelector("input").focus(); },
@@ -2077,24 +2201,33 @@
         const p = pendGet("it-pend"); p.kids = kids; pendSet("it-pend", p);
         S.ui.landing = "almost"; viewLogin(); return;
       }
+      if (kind === "onb-club-sport") {
+        if (!(pendGet("it-club") || {}).sport) { toast("Scegli lo sport"); if (btn) btn.disabled = false; return; }
+        S.ui.landing = "clubteam"; viewLogin(); return;
+      }
+      if (kind === "onb-club-team") {
+        const c = { ...(pendGet("it-club") || {}), ...clubPendForm(f) };
+        if (c.kid && (!c.kid.first || !c.kid.last)) { pendSet("it-club", c); toast("Scrivi nome e cognome di tuo figlio, oppure lascia vuoti i due campi"); if (btn) btn.disabled = false; return; }
+        pendSet("it-club", c); S.ui.landing = "clubalmost"; viewLogin(); return;
+      }
       if (kind === "onb-signup") {
-        const pw = String(fd.get("pw1") || "");
-        if (!pwOk(pw)) { toast(ERRORS.pw_weak || "La password deve avere almeno 8 caratteri, con lettere e numeri"); if (btn) btn.disabled = false; return; }
+        // niente password: un codice via email crea l'account (o fa entrare chi ce l'ha già)
         const a = { first: v("first"), last: v("last"), email: v("email").toLowerCase(), terms: true, parent: true, news: fd.get("news") === "on", stats: fd.get("stats") === "on" };
         pendSet("it-acct", a); S.ui.lastEmail = a.email;
-        const { data, error } = await sb.auth.signUp({ email: a.email, password: pw, options: { emailRedirectTo: location.origin + location.pathname, data: { pw_set: true, first_name: a.first, last_name: a.last } } });
+        const { error } = await sb.auth.signInWithOtp({ email: a.email, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: true, data: { first_name: a.first, last_name: a.last } } });
         if (error) throw error;
-        if (data && data.user && Array.isArray(data.user.identities) && !data.user.identities.length) {
-          // email già registrata: si entra con la password (o con un codice)
-          toast("Questa email ha già un account: entra con la tua password"); S.ui.landing = "login"; viewLogin(); return;
-        }
-        if (data && data.session) return; // conferma email non richiesta: il cambio di sessione apre l'app
         S.ui.landing = "verify"; viewLogin(); return;
+      }
+      if (kind === "onb-login-code") {
+        const email = v("email").toLowerCase(); S.ui.lastEmail = email;
+        const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: false } });
+        if (error) throw error;
+        store("it-forcepw", null); S.ui.otpPurpose = "login"; S.ui.loginEmail = email; viewLogin(); return;
       }
       if (kind === "onb-verify") {
         const a = pendGet("it-acct") || {}, token = v("code").replace(/\s+/g, "");
-        let r = await sb.auth.verifyOtp({ email: a.email, token, type: "signup" });
-        if (r.error) r = await sb.auth.verifyOtp({ email: a.email, token, type: "email" });
+        let r = await sb.auth.verifyOtp({ email: a.email, token, type: "email" });
+        if (r.error) r = await sb.auth.verifyOtp({ email: a.email, token, type: "signup" });
         if (r.error) { toast("Codice non valido o scaduto"); if (btn) btn.disabled = false; return; }
         S.ui.landing = null; return; // il cambio di sessione apre l'app
       }
