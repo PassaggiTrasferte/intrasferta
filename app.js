@@ -99,7 +99,9 @@
     invite_not_found: "Invito non valido.",
     invite_self: "Questo è un invito che hai creato tu: mandalo all'altro genitore.",
     athlete_name_required: "Scrivi il nome dell'atleta.",
-    too_many_athletes: "Hai già inserito molti atleti in questa squadra."
+    too_many_athletes: "Hai già inserito molti atleti in questa squadra.",
+    alias_taken: "C'è già un atleta con questo alias in squadra. Se è tuo figlio, chiedi all'altro genitore il link «Invita l'altro genitore»; altrimenti scegli un alias diverso (es. con l'iniziale o il numero di maglia).",
+    use_invite: "Per collegarti al figlio di un altro genitore serve il link «Invita l'altro genitore»: chiedilo a lui."
   };
   function errMsg(e) {
     const m = (e && (e.message || e.error_description || e.msg)) || "";
@@ -216,13 +218,19 @@
       S.myKids = (data || []).map((r) => r.athletes).filter(Boolean);
     } catch (e) { S.myKids = null; } // aggiornamento del database non ancora applicato
   }
-  const kidRow = (f, l, req, sfx) => `<div class="kid-row"><label>Nome<input name="kf${sfx || ""}" maxlength="40" autocomplete="off" ${req ? "required" : ""} value="${esc(f || "")}"></label><label>Cognome<input name="kl${sfx || ""}" maxlength="40" autocomplete="off" ${req ? "required" : ""} value="${esc(l || "")}"></label></div>`;
-  const kidsBlock = (title, req) => `<div class="full kids"><div class="label">${title}</div>${kidRow("", "", req)}<div><button type="button" class="btn-link" data-act="kid-more">+ Aggiungi un altro atleta</button></div></div>`;
+  // alias degli atleti: dalla seconda parola in poi, le parole di 3+ lettere diventano l'iniziale ("Marco Rossi" -> "Marco R."); max 15 caratteri.
+  // La stessa regola la applica il database: qui serve solo per mostrarla prima di salvare.
+  const aliasClean = (x) => { const w = String(x || "").trim().replace(/\s+/g, " ").split(" ").filter(Boolean); if (!w.length) return "";
+    return [w[0], ...w.slice(1).map((p) => { const l = p.replace(/[^\p{L}]/gu, ""); return l.length >= 3 ? l[0].toUpperCase() + "." : p; })].join(" ").slice(0, 15).trim(); };
+  const ALIAS_HINT = "Un soprannome o il nome con l'iniziale, es. Jaco, Marco R., #7. Non serve il cognome.";
+  const aliasInput = (name, val, req, cls) => `<input name="${name}" maxlength="30" autocomplete="off" data-alias ${cls ? `class="${cls}"` : ""} ${req ? "required" : ""} placeholder="Es. Jaco, Marco R." value="${esc(val || "")}">`;
+  const kidRow = (f, l, req, sfx) => `<div class="kid-row" style="grid-template-columns:1fr"><label>Alias dell'atleta${aliasInput("kf" + (sfx || ""), f, req)}</label><span class="small muted alias-note" hidden></span></div>`;
+  const kidsBlock = (title, req) => `<div class="full kids"><div class="label">${title}</div>${kidRow("", "", req)}<div><button type="button" class="btn-link" data-act="kid-more">+ Aggiungi un altro atleta</button></div><div class="small muted">${ALIAS_HINT}</div></div>`;
   function readKids(fd, sfx) {
     const fs = fd.getAll("kf" + (sfx || "")), ls = fd.getAll("kl" + (sfx || ""));
     return fs.map((f, i) => ({ first: String(f).trim(), last: String(ls[i] || "").trim() })).filter((k) => k.first);
   }
-  const kidsMissingSurname = (kids) => kids.find((k) => !k.last);
+  const kidsMissingSurname = () => null; // con gli alias il cognome non serve più
   // codici d'invito: un codice di gruppo vale per più squadre
   async function expandCodes(codes) {
     const out = [];
@@ -244,6 +252,8 @@
   // il ragazzo c'è già (inserito dall'altro genitore) in una o più delle squadre? Una sola domanda per ragazzo.
   // wheres: [{ key, team | code, name }] → restituisce { key: id del ragazzo a cui collegarsi }
   async function resolveKidMulti(kid, wheres) {
+    return {}; // con gli alias il collegamento tra genitori si fa solo con il link «Invita l'altro genitore»
+    // eslint-disable-next-line no-unreachable
     const found = {};
     for (const w of wheres) {
       const { data, error } = await sb.rpc("athlete_matches", { p_first: kid.first, p_last: kid.last, p_team: w.team || null, p_code: w.code || null });
@@ -350,7 +360,7 @@
         ${open ? `<div class="legal-box">${LEGAL[open].html}</div><button class="btn-ghost" data-act="legal-close">← Torna al riepilogo</button>` : `
         <div class="cons-item"><span aria-hidden="true">🤝</span><div><b>geniGO mette in contatto le famiglie, non organizza i viaggi.</b> I passaggi sono accordi gratuiti tra genitori: chi guida è responsabile del proprio viaggio.</div></div>
         <div class="cons-item"><span aria-hidden="true">🚗</span><div><b>Chi offre un passaggio deve poter trasportare gli atleti in sicurezza:</b> patente valida, auto assicurata e revisionata, rispetto del codice della strada, cinture o seggiolini per tutti, non più passeggeri dei posti omologati.</div></div>
-        <div class="cons-item"><span aria-hidden="true">🔒</span><div><b>I tuoi dati restano qui.</b> Nome, cellulare e nome dei tuoi atleti li vedono solo le tue squadre. Niente pubblicità profilata, nessun dato ceduto a terzi, nessuna posizione in tempo reale.</div></div>`}
+        <div class="cons-item"><span aria-hidden="true">🔒</span><div><b>I tuoi dati restano qui.</b> Nome, cellulare (se lo inserisci) e alias dei tuoi atleti li vedono solo le tue squadre. Niente pubblicità profilata, nessun dato ceduto a terzi, nessuna posizione in tempo reale.</div></div>`}
         <form class="form" data-form="consents">
           <label class="full check"><input type="checkbox" name="terms" required ${hasConsent("terms") && !updated ? "checked" : ""}> <span>Ho letto e accetto i <button type="button" class="btn-link" data-act="legal-open" data-v="termini">Termini d'uso</button> e l'<button type="button" class="btn-link" data-act="legal-open" data-v="privacy">Informativa privacy</button> <small class="muted">(obbligatorio)</small></span></label>
           <label class="full check"><input type="checkbox" name="parent" required ${hasConsent("parent") ? "checked" : ""}> <span>Sono il genitore, o chi ne fa le veci, degli atleti che inserirò <small class="muted">(obbligatorio)</small></span></label>
@@ -364,7 +374,7 @@
   }
 
   // ---------- Termini d'uso e Informativa privacy (bozze da far rivedere a un legale) ----------
-  const LEGAL_UPDATED = "15 ottobre 2026";
+  const LEGAL_UPDATED = "22 ottobre 2026";
   const LEGAL = {
     termini: { title: "Termini d'uso", html: `
       <p class="muted">Versione ${TERMS_VERSION} · aggiornati il ${LEGAL_UPDATED}. Gestore del servizio: &lt;titolare&gt;.</p>
@@ -397,26 +407,26 @@
       <p>&lt;titolare&gt; · &lt;indirizzo&gt; · &lt;email per la privacy&gt;</p>
       <h3>Quali dati trattiamo</h3>
       <ul><li><b>Account:</b> email, usata solo per l'accesso con codice.</li>
-        <li><b>Profilo:</b> nome che scegli e numero di cellulare.</li>
-        <li><b>Squadre:</b> le squadre a cui partecipi, il tuo ruolo e il nome dei tuoi atleti.</li>
-        <li><b>Passaggi:</b> auto offerte, posti prenotati, richieste, punti di partenza e orari che inserisci.</li>
+        <li><b>Profilo:</b> nome (il cognome è facoltativo) e, se lo inserisci, numero di cellulare.</li>
+        <li><b>Squadre:</b> le squadre a cui partecipi, il tuo ruolo e l'alias dei tuoi atleti (un soprannome o il nome con l'iniziale, mai il cognome completo).</li>
+        <li><b>Passaggi:</b> auto offerte, posti prenotati, richieste, punti di ritrovo e orari che inserisci.</li>
         <li><b>Consensi:</b> cosa hai accettato e quando.</li>
         <li><b>Provenienza:</b> se arrivi da un nostro link pubblicato (es. su Instagram), il nome di quel canale; le aperture del link sono contate in forma anonima, senza cookie di tracciamento.</li>
         <li><b>Statistiche d'uso</b> (solo se le attivi): giorni di apertura dell'app e uso delle funzioni, senza dati di posizione.</li></ul>
       <p>Non raccogliamo indirizzi di casa, posizione in tempo reale o dati di pagamento.</p>
       <h3>Dati dei minori</h3>
-      <p>Il nome degli atleti, spesso minorenni, è inserito dal genitore o da chi ne fa le veci, che dichiara di averne il diritto. È visibile solo ai membri della stessa squadra.</p>
+      <p>Per gli atleti, spesso minorenni, usiamo solo un alias scelto dal genitore o da chi ne fa le veci: se si scrive un cognome, l'app lo riduce da sola all'iniziale. L'alias è visibile solo ai membri approvati della stessa squadra e viene cancellato a fine stagione.</p>
       <h3>Perché e su quale base</h3>
       <ul><li>Far funzionare il servizio che hai richiesto: account, squadre e passaggi (esecuzione del servizio).</li>
         <li>Conservare la prova dei consensi e delle dichiarazioni (obbligo e legittimo interesse a tutela del servizio).</li>
         <li>Capire quali canali di comunicazione funzionano, tramite il canale di provenienza (legittimo interesse).</li>
         <li>Inviarti novità via email e raccogliere statistiche d'uso, solo con il tuo consenso, revocabile in ogni momento.</li></ul>
       <h3>Chi vede i tuoi dati</h3>
-      <p>Il tuo nome, il cellulare e il nome dei tuoi atleti sono visibili solo ai membri delle tue squadre. <b>Non vendiamo né cediamo dati a terzi e non facciamo pubblicità profilata.</b> Gli sponsor mostrati nell'app non ricevono dati personali: conteggiamo solo visualizzazioni e clic in forma aggregata.</p>
+      <p>Il tuo nome, il cellulare (se lo inserisci) e l'alias dei tuoi atleti sono visibili solo ai membri delle tue squadre. L'email serve solo per l'accesso e non la vede nessun altro genitore. <b>Non vendiamo né cediamo dati a terzi e non facciamo pubblicità profilata.</b> Gli sponsor mostrati nell'app non ricevono dati personali: conteggiamo solo visualizzazioni e clic in forma aggregata.</p>
       <h3>Fornitori tecnici</h3>
-      <p>Supabase (database e accesso, server nell'Unione Europea), Brevo (invio delle email), GitHub Pages (pubblicazione del sito), Anthropic (lettura dei calendari caricati dagli amministratori, senza dati dei genitori). Trattano i dati solo per nostro conto.</p>
+      <p>Supabase (database e accesso, server nell'Unione Europea), Brevo (invio delle email), GitHub Pages (pubblicazione del sito), OpenStreetMap (calcolo dei km dal punto di ritrovo, senza dati personali), Anthropic (lettura dei calendari caricati dagli amministratori, senza dati dei genitori). Trattano i dati solo per nostro conto.</p>
       <h3>Per quanto tempo</h3>
-      <p>Finché hai un account. Se lo elimini, cancelliamo profilo, iscrizioni, passaggi e prenotazioni; resta solo ciò che la legge ci obbliga a conservare.</p>
+      <p>Finché hai un account. Se lo elimini, cancelliamo profilo, iscrizioni, passaggi e prenotazioni; resta solo ciò che la legge ci obbliga a conservare. In ogni caso, dopo il 31 agosto di ogni stagione cancelliamo alias degli atleti, richieste, nomi e telefoni nei passaggi e punti di ritrovo: restano solo i numeri della squadra (posti, km, CO2), senza nomi.</p>
       <h3>I tuoi diritti</h3>
       <p>Puoi accedere ai tuoi dati, correggerli, scaricarli, chiederne la cancellazione o limitarne l'uso, e revocare i consensi facoltativi. Molte di queste cose le fai da solo in Profilo › Privacy e consensi; per il resto scrivi a &lt;email per la privacy&gt;. Puoi anche presentare reclamo al Garante per la protezione dei dati personali.</p>
       <h3>Cookie</h3>
@@ -449,8 +459,8 @@
   const onbLegal = `<p class="onb-legal">Continuando accetti i <a href="#/termini" target="_blank">Termini</a> e l'<a href="#/privacy" target="_blank">Informativa privacy</a></p>`;
   const onbTeams = (p) => `<div class="onb-chips">${(p.teams || []).map((t) => `<span class="onb-chip">${esc(t.name)}</span>`).join("")}</div>`;
   const onbKid = (i, k, teams) => `<div class="onb-group onb-kid" data-i="${i}">
-      <label class="onb-line"><span>Nome</span><input name="kf${i}" maxlength="40" autocomplete="off" value="${esc(k.first || "")}" placeholder="Nome"></label>
-      <label class="onb-line"><span>Cognome</span><input name="kl${i}" maxlength="40" autocomplete="off" value="${esc(k.last || "")}" placeholder="Cognome"></label>
+      <label class="onb-line"><span>Alias</span>${aliasInput("kf" + i, k.first, false)}</label>
+      <span class="onb-note alias-note" hidden></span>
       ${teams.length > 1 ? `<div class="onb-line onb-plays"><span>Gioca in</span><div class="onb-pills">${teams.map((t) => `<label class="onb-pill"><input type="checkbox" name="kt${i}" value="${esc(t.code)}" ${!k.codes || k.codes.includes(t.code) ? "checked" : ""}><span>${esc(t.name)}</span></label>`).join("")}</div></div>` : ""}
       ${i > 0 ? `<button type="button" class="btn-link onb-kid-del" data-act="onb-kid-del" data-i="${i}">Togli</button>` : ""}
     </div>`;
@@ -533,7 +543,7 @@
         <div class="onb-label">I tuoi atleti</div>
         <div class="onb-kids">${kids.map((k, i) => onbKid(i, k, p.teams)).join("")}</div>
         <button type="button" class="onb-add" data-act="onb-kid-add">+ Aggiungi un altro atleta</button>
-        <p class="onb-note">Se l'altro genitore si registra con lo stesso nome e cognome dell'atleta, vi colleghiamo e vedete le stesse prenotazioni.</p>
+        <p class="onb-note">${ALIAS_HINT} Per collegare l'altro genitore, dopo la registrazione ti diamo un link da mandargli.</p>
         <div class="onb-foot"><button class="onb-btn" type="submit">Avanti</button></div>
       </form>`;
     },
@@ -776,10 +786,10 @@
     $app.innerHTML = topBar({ title: "Come ti chiami?" }) + `<div class="wrap narrow">
       <form class="card form" data-form="profile-name">
         <label>Nome<input name="first" required maxlength="40" autocomplete="given-name" value="${esc(S.profile?.first_name || "")}"></label>
-        <label>Cognome<input name="last" required maxlength="40" autocomplete="family-name" value="${esc(S.profile?.last_name || "")}"></label>
-        <p class="full small muted" style="margin:0">Così ti vedranno gli altri genitori della squadra.</p>
-        <label class="full">Il tuo cellulare (per gli avvisi WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="333 1234567" value="${esc(S.profile?.phone || "")}"></label>
-        <p class="full small muted" style="margin:0">Il numero lo vedono solo i genitori delle tue squadre: serve per avvisare con un tocco chi guida o chi ha prenotato.</p>
+        <label>Cognome (facoltativo)<input name="last" maxlength="40" autocomplete="family-name" value="${esc(S.profile?.last_name || "")}"></label>
+        <p class="full small muted" style="margin:0">Così ti vedranno gli altri genitori della squadra. Del cognome basta l'iniziale.</p>
+        <label class="full">Il tuo cellulare (facoltativo, per WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="333 1234567" value="${esc(S.profile?.phone || "")}"></label>
+        <p class="full small muted" style="margin:0">Il numero lo vedono solo i genitori delle tue squadre: serve per avvisare con un tocco chi guida o chi ha prenotato. Se preferisci non mostrarlo, lascialo vuoto.</p>
         <div class="actions"><button class="btn-primary" type="submit">Continua</button></div>
       </form></div>`;
   }
@@ -819,7 +829,7 @@
     if (store("it-forcepw") === "1") return viewSetPassword(); // solo dopo «password dimenticata» da chi la usa
     if (!consentsOk()) return viewConsents();
     if (!S.profile?.display_name) return viewName();
-    if (S.myKids && (!S.profile.last_name || S.myKids.some((k) => !k.last_name))) return viewFillSurnames();
+    // (la richiesta di completare i cognomi non serve più: atleti con alias, cognome dei genitori facoltativo)
     logOpenOncePerDay();
     if (pendGet("it-pend") && (pendGet("it-pend").kids || []).length) { const h0 = location.hash; try { if (await joinPending() && location.hash !== h0) return; } catch (e) { toast(errMsg(e)); } }
     const next = store("it-next");
@@ -957,7 +967,7 @@
   // ---------- entrare con invito (una o più squadre) ----------
   // ogni figlio si scrive una volta; chi ha già figli su geniGO li spunta
   const joinTeamPills = (name, teams, checked) => `<div class="pill-group">${teams.map((t) => `<label class="pill check-pill"><input type="checkbox" name="${name}" value="${esc(t.code)}" ${checked ? "checked" : ""}> ${esc(t.name)}</label>`).join("")}</div>`;
-  const newKidCard = (i, teams, last, checked) => `<div class="kid-card nk"><div class="kid-row"><label>Nome<input name="nf${i}" maxlength="40" autocomplete="off"></label><label>Cognome<input name="nl${i}" maxlength="40" autocomplete="off" value="${esc(last || "")}"></label></div>
+  const newKidCard = (i, teams, last, checked) => `<div class="kid-card nk"><div class="kid-row" style="grid-template-columns:1fr"><label>Alias dell'atleta${aliasInput("nf" + i, "", false)}</label><span class="small muted alias-note" hidden></span></div>
       <div class="small muted">In quali di queste squadre gioca?</div>${joinTeamPills("nt" + i, teams, checked)}</div>`;
   async function viewJoin(code) {
     unsubscribe();
@@ -990,7 +1000,7 @@
         ${groups.length ? `<div class="full label">Chi gioca in ${esc(t.name)}?</div>
           <div class="full pill-group">${groups.map((g, i) => `<label class="pill check-pill"><input type="checkbox" name="ek" value="${i}"> ${esc(fullName(g.first, g.last))}</label>`).join("")}</div>` : ""}
         <div class="full kids"><div class="${groups.length ? "small muted" : "label"}">${groups.length ? "Un altro atleta?" : "I tuoi atleti in " + esc(t.name)}</div>${kidRow("", S.profile.last_name || "", !groups.length)}<div><button type="button" class="btn-link" data-act="kid-more">+ Aggiungi un altro atleta</button></div></div>
-        <p class="full small muted" style="margin:0">Se anche l'altro genitore si registra, basta che scriva lo stesso nome e cognome: vi riconosciamo come genitori dello stesso atleta e vedete le stesse prenotazioni.</p>
+        <p class="full small muted" style="margin:0">${ALIAS_HINT} Per collegare l'altro genitore, dopo l'ingresso ti diamo un link da mandargli: così vedete le stesse prenotazioni.</p>
         <div class="actions"><button class="btn-primary btn-block" type="submit">Entra nella squadra</button></div>
       </form>`;
     } else {
@@ -1021,7 +1031,8 @@
     }
     for (const e of entries) for (const c of e.codes) if (tid[c]) {
       const { data: na, error } = await sb.rpc("add_athlete", { p_team: tid[c], p_first: e.first, p_last: e.last, p_link: e.links[c] || null });
-      if (error) toast(errMsg(error));
+      if (error && /alias_taken|use_invite/.test(error.message || "")) await askModal(`«${esc(aliasClean(e.first))}» c'è già`, `<p style="margin:0">${esc(errMsg(error))}</p><p class="small muted" style="margin:0">Sei entrato comunque in squadra: l'atleta lo puoi aggiungere dopo da Profilo › I miei atleti.</p>`, "Ho capito", "Chiudi");
+      else if (error) toast(errMsg(error));
       else if (!e.links[c] && na && na.id && !e.existing) (S.newKidIds = S.newKidIds || []).push({ id: na.id, name: e.first });
     }
     await loadMyKids(); S.myTeams = null;
@@ -1059,8 +1070,9 @@
     const tname = (tid) => { const t = (S.myTeams || []).find((x) => x.id === tid); return t ? t.name : "squadra"; };
     const form = (gr) => `<form class="form" data-form="kid" data-key="${esc(gr ? gr.key : "")}" style="border-top:1px solid var(--line);padding-top:12px">
         <div class="full label">${gr ? "Modifica" : "Aggiungi atleta"}</div>
-        <label>Nome<input name="first" required maxlength="40" value="${esc(gr ? gr.first : "")}"></label>
-        <label>Cognome<input name="last" required maxlength="40" value="${esc(gr ? gr.last : S.profile.last_name || "")}"></label>
+        <label class="full">Come lo chiamate in squadra?${aliasInput("first", gr ? gr.first : "", true)}</label>
+        <span class="full small muted alias-note" hidden></span>
+        <p class="full small muted" style="margin:0">${ALIAS_HINT}</p>
         <div class="full"><div class="label" style="margin-bottom:6px">In quali squadre gioca?</div>
           ${(S.myTeams || []).length ? `<div class="pill-group">${S.myTeams.map((t) => `<label class="pill check-pill"><input type="checkbox" name="team" value="${t.id}" ${gr ? (gr.recs.some((r) => r.team_id === t.id) ? "checked" : "") : S.myTeams.length === 1 ? "checked" : ""}> ${esc(t.name)}</label>`).join("")}</div>` : `<div class="small muted">Non sei ancora in nessuna squadra.</div>`}
           <p class="small muted" style="margin:6px 0 0">Per una squadra nuova usa il codice d'invito che ti ha dato l'allenatore o la società.${gr ? " Togli la spunta per toglierlo da una squadra." : ""}</p></div>
@@ -1085,9 +1097,9 @@
     $app.innerHTML = topBar({ title: "Profilo", back: navTeam ? "" : "#/" }) + `<div class="wrap narrow">
       <form class="card form" data-form="profile-name">
         <label>Nome<input name="first" required maxlength="40" autocomplete="given-name" value="${esc(S.profile.first_name || firstName(S.profile.display_name))}"></label>
-        <label>Cognome<input name="last" ${S.myKids === null ? "" : "required"} maxlength="40" autocomplete="family-name" value="${esc(S.profile.last_name || "")}"></label>
-        <label class="full">Cellulare (per WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="333 1234567" value="${esc(S.profile.phone || "")}"></label>
-        <div class="full small muted">Il numero è visibile solo ai genitori delle tue squadre.</div>
+        <label>Cognome (facoltativo)<input name="last" maxlength="40" autocomplete="family-name" value="${esc(S.profile.last_name || "")}"></label>
+        <label class="full">Cellulare (facoltativo, per WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="333 1234567" value="${esc(S.profile.phone || "")}"></label>
+        <div class="full small muted">Il numero è visibile solo ai genitori delle tue squadre. Lascialo vuoto se preferisci non mostrarlo. Del cognome basta l'iniziale.</div>
         <div class="full small muted">Accesso con: ${esc(S.user.email || "")}</div>
         <div class="actions"><button class="btn-primary" type="submit">Salva e torna alle trasferte</button></div>
       </form>
@@ -1120,6 +1132,7 @@
       <div class="small">${drv && drv.granted ? `✓ Dichiarazione del conducente, stagione ${esc(season())} · ${new Date(drv.created_at).toLocaleDateString("it-IT")}` : `Dichiarazione del conducente: ti verrà chiesta la prima volta che offri un passaggio in questa stagione`}</div>
       <label class="check switch"><input type="checkbox" data-act="consent-toggle" data-k="news" ${hasConsent("news") ? "checked" : ""}> <span>Ricevere via email novità e consigli d'uso</span></label>
       <label class="check switch"><input type="checkbox" data-act="consent-toggle" data-k="stats" ${hasConsent("stats") ? "checked" : ""}> <span>Statistiche d'uso anonime</span></label>
+      <div class="small" style="background:var(--accent-soft);border-radius:10px;padding:10px 12px"><b>Cancellazione automatica a fine stagione</b><br>Dopo il 31 agosto cancelliamo alias degli atleti, richieste, nomi e telefoni nei passaggi e punti di ritrovo. Restano solo i numeri della squadra (posti, km, CO2), senza nomi.</div>
       <div class="row small"><a href="#/termini">Termini d'uso</a> · <a href="#/privacy">Informativa privacy</a></div>
       <div class="row"><button class="btn-ghost" data-act="data-export">Scarica i miei dati</button></div>
       ${S.ui.confirmDelete ? `<div class="notice"><b>Eliminare definitivamente l'account?</b><div class="small">Cancelliamo profilo, iscrizioni alle squadre, auto offerte, prenotazioni e richieste. Non si può annullare.</div>
@@ -1139,7 +1152,7 @@
     const teams = ids.length ? (await sb.from("teams").select("id,name,category,season").in("id", ids)).data || [] : [];
     const out = { esportato_il: new Date().toISOString(), email: S.user.email, profilo: { nome: S.profile.display_name, cellulare: S.profile.phone },
       squadre: (mem.data || []).map((m) => ({ ...m, squadra: (teams.find((t) => t.id === m.team_id) || {}).name })),
-      atleti: (S.myKids || []).map((k) => ({ nome: k.first_name, cognome: k.last_name, squadra: (teams.find((t) => t.id === k.team_id) || {}).name })),
+      atleti: (S.myKids || []).map((k) => ({ alias: k.first_name, squadra: (teams.find((t) => t.id === k.team_id) || {}).name })),
       auto_offerte: rides.data || [], prenotazioni: books.data || [], richieste: reqs.data || [], consensi: S.consentLog || [] };
     const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "genigo-i-miei-dati.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
@@ -1860,10 +1873,10 @@
     const names = myAthletes().filter((n) => !booked.has(n.toLowerCase()) && !asked.has(n.toLowerCase()));
     const kidsDone = S.athletesOk && myAthletes().length && !names.length;
     return `<form class="form" data-form="req" data-id="${e.id}" style="border-top:1px solid var(--line);padding-top:12px">
-      ${names.length ? kidPicker(names, "Per chi?") : kidsDone ? `<div class="full small muted">I tuoi atleti hanno già un posto o una richiesta: puoi chiedere un passaggio per uno o più adulti.</div>` : `<label>Atleta (facoltativo se viaggiano solo adulti)<input name="athlete" maxlength="60" placeholder="Nome e cognome"></label>`}
+      ${names.length ? kidPicker(names, "Per chi?") : kidsDone ? `<div class="full small muted">I tuoi atleti hanno già un posto o una richiesta: puoi chiedere un passaggio per uno o più adulti.</div>` : `<label>Atleta (facoltativo se viaggiano solo adulti)<input name="athlete" maxlength="60" placeholder="Alias dell'atleta"></label>`}
       ${adultsField()}
       <label>Serve per<select name="direction"><option value="ar">andata e ritorno</option><option value="andata">solo andata</option><option value="ritorno">solo ritorno</option></select></label>
-      <label class="full">Da dove parte<input name="from" maxlength="120" placeholder="Es. Buccinasco"></label>
+      <label class="full">Da dove parte<input name="from" maxlength="120" placeholder="Es. Buccinasco, piazza della chiesa"></label>
       <div class="actions"><button class="btn-primary" type="submit">Pubblica la richiesta</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
     </form>`;
   }
@@ -1876,8 +1889,8 @@
       <div class="full"><b>Porti ${who}</b><div class="small muted">Pubblichiamo la tua auto per questa trasferta e ci mettiamo subito dentro chi ha chiesto.</div></div>
       <label>Posti in auto<select name="seats">${[1, 2, 3, 4, 5, 6, 7, 8].filter((n) => n >= need).map((n) => `<option ${n === need ? "selected" : ""}>${n}</option>`).join("")}</select></label>
       <label>Orario partenza<input name="time" type="time" required></label>
-      <label class="full">Punto di partenza<input name="from" required maxlength="120" value="${esc(q.depart_from || "")}" placeholder="Es. parcheggio del palazzetto"></label>
-      ${S.profile.phone ? "" : `<label class="full">Il tuo cellulare (per WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" placeholder="333 1234567"></label>`}
+      <label class="full">Punto di ritrovo<input name="from" required maxlength="120" value="${esc(q.depart_from || "")}" placeholder="Es. parcheggio del palazzetto"></label><p class="full small muted" style="margin:-6px 0 0">Un posto pubblico (palestra, parcheggio, piazza), non l'indirizzo di casa: lo vede tutta la squadra.</p>
+      ${S.profile.phone ? "" : `<label class="full">Il tuo cellulare (facoltativo, per WhatsApp)<input name="phone" type="tel" inputmode="tel" maxlength="20" placeholder="333 1234567"></label>`}
       <label class="full check"><input name="back" type="checkbox" ${q.direction === "andata" ? "" : "checked"}> Faccio anche il ritorno</label>
       ${driverOk() ? "" : `<label class="full check declare"><input name="driver" type="checkbox" required> <span>Dichiaro di avere patente valida, auto con assicurazione RC in corso e revisione regolare, e di trasportare gli atleti rispettando il codice della strada, con cinture o seggiolini e senza superare i posti omologati. Il passaggio è gratuito e sotto la mia responsabilità. <small class="muted">Te lo chiediamo una volta a stagione · <a href="#/termini" target="_blank">Termini</a></small></span></label>`}
       <div class="actions"><button class="btn-ok" type="submit">Lo porto io</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
@@ -1888,9 +1901,9 @@
     return `<form class="form" data-form="offer" data-id="${e.id}" style="border-top:1px solid var(--line);padding-top:12px">
       <label>Posti liberi<select name="seats">${[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `<option ${n === 3 ? "selected" : ""}>${n}</option>`).join("")}</select></label>
       <label>Orario partenza<input name="time" type="time" required></label>
-      <label class="full">Punto di partenza<input name="from" required maxlength="120" placeholder="Es. parcheggio del palazzetto"></label>
+      <label class="full">Punto di ritrovo<input name="from" required maxlength="120" placeholder="Es. parcheggio del palazzetto"></label><p class="full small muted" style="margin:-6px 0 0">Un posto pubblico (palestra, parcheggio, piazza), non l'indirizzo di casa: lo vede tutta la squadra.</p>
       <label class="full">Note<input name="notes" maxlength="200" placeholder="Es. posso fare una tappa lungo la strada"></label>
-      <label class="full">Telefono (per WhatsApp, visibile ai genitori della squadra)<input name="phone" type="tel" inputmode="tel" maxlength="20" placeholder="333 1234567" value="${esc(S.profile.phone || "")}"></label>
+      <label class="full">Telefono (facoltativo, per WhatsApp: lo vedono i genitori della squadra)<input name="phone" type="tel" inputmode="tel" maxlength="20" placeholder="333 1234567" value="${esc(S.profile.phone || "")}"></label>
       <label class="full check"><input name="back" type="checkbox" checked> Faccio anche il ritorno</label>
       ${driverOk() ? "" : `<label class="full check declare"><input name="driver" type="checkbox" required> <span>Dichiaro di avere patente valida, auto con assicurazione RC in corso e revisione regolare, e di trasportare gli atleti rispettando il codice della strada, con cinture o seggiolini e senza superare i posti omologati. Il passaggio è gratuito e sotto la mia responsabilità. <small class="muted">Te lo chiediamo una volta a stagione · <a href="#/termini" target="_blank">Termini</a></small></span></label>`}
       <div class="actions"><button class="btn-primary" type="submit">Pubblica il passaggio</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
@@ -1923,7 +1936,7 @@
     return `<form class="form" data-form="book" data-id="${r.id}" data-free="${freeN}">
       <div class="full small muted">Posti liberi su questo mezzo: <b>${freeN}</b></div>
       ${kidsDone ? `<div class="full small muted">I tuoi atleti hanno già un posto: puoi prenotare per uno o più adulti.</div>` : ""}
-      ${kidsDone ? "" : pick ? kidPicker(mine, "Chi sale?") + (isAdmin() ? `<label class="full">Altro atleta della squadra (facoltativo)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Nome e cognome"><datalist id="dl-${r.id}">${all.filter((n) => !mine.includes(n)).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>` : "") : `<label>Atleta (facoltativo se salgono solo adulti)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Nome e cognome"><datalist id="dl-${r.id}">${(conv || isAdmin() ? all : mine).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>`}
+      ${kidsDone ? "" : pick ? kidPicker(mine, "Chi sale?") + (isAdmin() ? `<label class="full">Altro atleta della squadra (facoltativo)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Alias dell'atleta"><datalist id="dl-${r.id}">${all.filter((n) => !mine.includes(n)).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>` : "") : `<label>Atleta (facoltativo se salgono solo adulti)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Alias dell'atleta"><datalist id="dl-${r.id}">${(conv || isAdmin() ? all : mine).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>`}
       ${adultsField()}
       <label>Dove sale<input name="pickup" maxlength="80" placeholder="Al punto di partenza"></label>
       <div class="actions"><button class="btn-primary" type="submit">${conv ? "Assegna posto" : "Conferma posto"}</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
@@ -2305,6 +2318,16 @@
     } catch (e) { toast(errMsg(e)); b.disabled = false; if (act === "toggle-approval") b.checked = !b.checked; }
   });
 
+  // alias: mostra come verrà salvato se contiene un cognome
+  document.addEventListener("input", (ev) => {
+    const i = ev.target; if (!i || !i.matches || !i.matches("[data-alias]")) return;
+    let n = i.closest("label") && i.closest("label").nextElementSibling;
+    if (!n || !n.classList.contains("alias-note")) return;
+    const raw = String(i.value || "").trim().replace(/\s+/g, " "), c = aliasClean(raw);
+    n.hidden = !raw || c === raw;
+    if (!n.hidden) n.textContent = `Per la privacy dei ragazzi salveremo «${c}»`;
+  });
+
   // regole della password che si spuntano mentre si scrive
   document.addEventListener("input", (ev) => {
     const f = ev.target.form; if (!f || !f.elements.pw1) return;
@@ -2347,8 +2370,7 @@
         const stop = (msg, sel) => { toast(msg); f.querySelector(sel)?.focus(); if (btn) btn.disabled = false; };
         if (!kids.length) return stop("Scrivi il nome del tuo atleta", "input");
         for (let i = 0; i < kids.length; i++) {
-          if (!kids[i].first) return stop("Scrivi il nome", `[name="kf${i}"]`);
-          if (!kids[i].last) return stop("Scrivi anche il cognome di " + kids[i].first, `[name="kl${i}"]`);
+          if (!kids[i].first) return stop("Scrivi l'alias dell'atleta", `[name="kf${i}"]`);
           if (!kids[i].codes.length) return stop("Spunta la squadra in cui gioca " + kids[i].first, `[name="kt${i}"]`);
         }
         const p = pendGet("it-pend"); p.kids = kids; pendSet("it-pend", p);
@@ -2434,7 +2456,7 @@
         await loadMyKids(); toast("Grazie!"); route(); return;
       }
       if (kind === "kid") {
-        const first = v("first"), last = v("last"), want = fd.getAll("team");
+        const first = aliasClean(v("first")), last = "", want = fd.getAll("team");
         const gr = f.dataset.key ? kidGroups().find((g) => g.key === f.dataset.key) : null;
         if (!gr && !want.length) { toast("Scegli almeno una squadra"); if (btn) btn.disabled = false; return; }
         if (gr) {
@@ -2478,7 +2500,6 @@
           G.forEach((g, i) => { const cs = fd.getAll("ek-" + i); if (cs.length) entries.push({ first: g.first, last: g.last, codes: cs, existing: true }); });
           for (let i = 0; f.elements["nf" + i]; i++) {
             const first = v("nf" + i), last = v("nl" + i); if (!first) continue;
-            if (!last) return stop("Scrivi anche il cognome di " + first, f.elements["nl" + i]);
             const cs = fd.getAll("nt" + i); if (!cs.length) return stop("Spunta le squadre in cui gioca " + first);
             entries.push({ first, last, codes: cs });
           }
@@ -2529,7 +2550,7 @@
         await reloadTeam(); return;
       }
       if (kind === "req") {
-        const who = fd.getAll("athlete").map((x) => String(x).trim()).filter(Boolean);
+        const who = fd.getAll("athlete").map((x) => aliasClean(x)).filter(Boolean);
         const adQ = Math.max(0, Math.min(8, Number(v("adults")) || 0));
         if (!who.length && !adQ) { toast("Scegli per chi chiedi il passaggio, o indica quanti adulti"); if (btn) btn.disabled = false; return; }
         if (!who.length) {
@@ -2552,7 +2573,7 @@
       }
       if (kind === "book") {
         S.ui.wa = null;
-        const who = fd.getAll("athlete").map((x) => String(x).trim()).filter(Boolean);
+        const who = fd.getAll("athlete").map((x) => aliasClean(x)).filter(Boolean);
         const adB = Math.max(0, Math.min(8, Number(v("adults")) || 0));
         if (!who.length && !adB) { toast("Scegli chi sale, o indica quanti adulti"); if (btn) btn.disabled = false; return; }
         const freeB = f.dataset.free != null ? Number(f.dataset.free) : 99;
