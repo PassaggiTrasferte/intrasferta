@@ -141,6 +141,14 @@
 
   async function ensureProfile() {
     if (S.profile) return S.profile;
+    // controllo dell'account e dati del profilo in parallelo (un solo giro)
+    const sessUser = S.session && S.session.user;
+    if (sessUser) S.user = sessUser;
+    const early = sessUser ? Promise.all([
+      sb.from("profiles").select("*").eq("id", sessUser.id).maybeSingle().then((r) => r, () => ({ data: null })),
+      sb.rpc("is_platform_admin").then((r) => r, () => ({ data: false })),
+      loadConsents(), loadMyKids()
+    ]) : null;
     const gu = await sb.auth.getUser();
     S.user = gu.data && gu.data.user;
     // sessione rimasta in memoria di un account che non esiste più (o scaduta): si esce e si torna all'accesso
@@ -150,11 +158,15 @@
       S.session = null; S.profile = null;
       throw new Error("session_gone");
     }
-    const { data } = await sb.from("profiles").select("*").eq("id", S.user.id).maybeSingle();
-    S.profile = data || { id: S.user.id, display_name: "", phone: "" };
-    try { S.platformAdmin = (await sb.rpc("is_platform_admin")).data === true; } catch (e) { S.platformAdmin = false; }
+    let prof, adm;
+    if (early && sessUser.id === S.user.id) { [prof, adm] = await early; }
+    else {
+      [prof, adm] = await Promise.all([sb.from("profiles").select("*").eq("id", S.user.id).maybeSingle(), sb.rpc("is_platform_admin").then((r) => r, () => ({ data: false }))]);
+      await Promise.all([loadConsents(), loadMyKids()]);
+    }
+    S.profile = (prof && prof.data) || { id: S.user.id, display_name: "", phone: "" };
+    S.platformAdmin = !!(adm && adm.data === true);
     if (S.profile.phone == null) S.profile.phone = "";
-    await Promise.all([loadConsents(), loadMyKids()]);
     return S.profile;
   }
 
@@ -395,7 +407,7 @@
     pendSet("it-pend", { code, teams, kids: old && old.code === code ? old.kids : [] });
     return true;
   }
-  const onbBack = (act) => `<button type="button" class="onb-back" data-act="${act}" aria-label="Indietro"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>`;
+  const onbBack = (act) => `<div class="onb-top"><button type="button" class="onb-back" data-act="${act}" aria-label="Indietro"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button><img src="logo.svg?v=gg1" alt="geniGO" class="onb-top-logo"></div>`;
   const onbLegal = `<p class="onb-legal">Continuando accetti i <a href="#/termini" target="_blank">Termini</a> e l'<a href="#/privacy" target="_blank">Informativa privacy</a></p>`;
   const onbTeams = (p) => `<div class="onb-chips">${(p.teams || []).map((t) => `<span class="onb-chip">${esc(t.name)}</span>`).join("")}</div>`;
   const onbKid = (i, k, teams) => `<div class="onb-group onb-kid" data-i="${i}">
@@ -777,6 +789,9 @@
     if (parts[0] === "profilo") return viewProfile(true);
     if (parts[0] === "admin") return viewAdmin();
     if (parts[0] === "t" && parts[1]) return viewTeam(parts[1], parts[2] || "trasferte");
+    // ultima squadra aperta su questo telefono: si va diretti lì (un giro di attesa in meno)
+    const lastT = store("it-last-team");
+    if (lastT && !S.ui.homeOnce) return viewTeam(lastT, "trasferte", true);
     return viewHome();
   }
 
@@ -1161,26 +1176,23 @@
   function unsubscribe() { if (S.channel) { sb.removeChannel(S.channel); S.channel = null; } S.loadedTeam = null; }
 
   async function fetchTeamData(id, uid) {
-    const [t, me] = await Promise.all([
+    // tutte le richieste partono insieme: un solo giro verso il database
+    const [t, mem, ev, ri, bo, ve, rq, at, ap] = await Promise.all([
       sb.from("teams").select("*").eq("id", id).maybeSingle(),
-      sb.from("team_members").select("*").eq("team_id", id).eq("user_id", uid).maybeSingle()
-    ]);
-    if (t.error) throw t.error;
-    if (!t.data) return null;
-    const [mem, ev, ri, bo, ve, rq] = await Promise.all([
       sb.from("team_members").select("*").eq("team_id", id),
       sb.from("events").select("*").eq("team_id", id).order("starts_at"),
       sb.from("rides").select("*").eq("team_id", id).order("created_at"),
       sb.from("bookings").select("*").eq("team_id", id).order("created_at"),
       sb.from("vehicles").select("*").eq("team_id", id).order("created_at"),
-      sb.from("ride_requests").select("*").eq("team_id", id).order("created_at")
+      sb.from("ride_requests").select("*").eq("team_id", id).order("created_at"),
+      sb.from("athletes").select("id,team_id,first_name,last_name,label").eq("team_id", id).then((r) => r, () => ({ error: true })),
+      sb.from("athlete_parents").select("athlete_id,user_id").eq("team_id", id).then((r) => r, () => ({ error: true }))
     ]);
+    if (t.error) throw t.error;
+    if (!t.data) return null;
+    const me = { data: (mem.data || []).find((m) => m.user_id === uid) || null };
     // ragazzi della squadra con i loro genitori (null se il database non è ancora aggiornato)
-    let athletes = null;
-    try {
-      const [at, ap] = await Promise.all([sb.from("athletes").select("id,team_id,first_name,last_name,label").eq("team_id", id), sb.from("athlete_parents").select("athlete_id,user_id").eq("team_id", id)]);
-      if (!at.error && !ap.error) athletes = (at.data || []).map((a) => ({ ...a, parents: (ap.data || []).filter((x) => x.athlete_id === a.id).map((x) => x.user_id) }));
-    } catch (e) { athletes = null; }
+    const athletes = !at.error && !ap.error ? (at.data || []).map((a) => ({ ...a, parents: (ap.data || []).filter((x) => x.athlete_id === a.id).map((x) => x.user_id) })) : null;
     return { team: t.data, me: me.data, members: (mem.data || []).map((m) => ({ ...m, team_id: m.team_id || id })), events: ev.data || [], rides: ri.data || [], bookings: bo.data || [], vehicles: ve.data || [], requests: rq.data || [], athletes };
   }
 
@@ -1188,13 +1200,18 @@
   // ogni trasferta resta gestita con le regole della propria squadra (withTeam).
   async function loadTeam(id) {
     const uid = S.user.id;
-    const main = await fetchTeamData(id, uid);
+    const safe = (p) => p.then((r) => r, () => ({ data: null }));
+    // primo giro: la squadra aperta, le mie iscrizioni, avvisi e sponsor, tutto insieme
+    const [main, mineR, noR, unR, spR] = await Promise.all([
+      fetchTeamData(id, uid),
+      safe(sb.from("team_members").select("team_id,status").eq("user_id", uid).eq("status", "active")),
+      safe(sb.rpc("my_notices")), safe(sb.rpc("my_user_notices")), safe(sb.rpc("get_sponsors", { p_team: id }))
+    ]);
     if (!main) { S.team = null; S.me = null; return false; }
     S.team = main.team; S.me = main.me;
     let all = [main];
     if (S.me) {
-      const { data: mine } = await sb.from("team_members").select("team_id,status").eq("user_id", uid).eq("status", "active");
-      const others = (mine || []).map((m) => m.team_id).filter((t) => t !== id);
+      const others = (mineR.data || []).map((m) => m.team_id).filter((t) => t !== id);
       if (others.length) all = all.concat((await Promise.all(others.map((t) => fetchTeamData(t, uid).catch(() => null)))).filter(Boolean));
     }
     S.multi = all.length > 1;
@@ -1211,9 +1228,7 @@
     S.rides = all.flatMap((d) => d.rides); S.bookings = all.flatMap((d) => d.bookings);
     S.vehicles = all.flatMap((d) => d.vehicles); S.requests = all.flatMap((d) => d.requests);
     S.athletesOk = all.every((d) => d.athletes); S.athletes = all.flatMap((d) => d.athletes || []);
-    try { S.notices = (await sb.rpc("my_notices")).data || []; } catch (e) { S.notices = []; }
-    try { S.userNotices = (await sb.rpc("my_user_notices")).data || []; } catch (e) { S.userNotices = []; }
-    try { S.sponsors = (await sb.rpc("get_sponsors", { p_team: id })).data || []; } catch (e) { S.sponsors = []; }
+    S.notices = noR.data || []; S.userNotices = unR.data || []; S.sponsors = spR.data || [];
     return true;
   }
 
@@ -1249,12 +1264,12 @@
   const DIR = { ar: "andata e ritorno", andata: "solo andata", ritorno: "solo ritorno" };
 
   let currentTab = "trasferte";
-  async function viewTeam(id, tab) {
+  async function viewTeam(id, tab, fromHome) {
     currentTab = tab;
     if (S.loadedTeam !== id) {
       S.ui = {}; S.aiPreview = null;
       $app.innerHTML = topBar({ title: "…", back: "#/" }) + `<div class="wrap"><div class="boot">Carico la squadra…</div></div>`;
-      try { const ok = await loadTeam(id); if (!ok) { $app.innerHTML = topBar({ title: "Squadra", back: "#/" }) + `<div class="wrap"><div class="empty"><strong>Squadra non disponibile</strong>Non fai parte di questa squadra, oppure la tua richiesta è ancora in attesa di approvazione.</div></div>`; return; } }
+      try { const ok = await loadTeam(id); if (fromHome && (!ok || !S.me || S.me.status !== "active")) { unsubscribe(); if (!ok) store("it-last-team", null); S.ui.homeOnce = true; return viewHome(); } if (!ok) { $app.innerHTML = topBar({ title: "Squadra", back: "#/" }) + `<div class="wrap"><div class="empty"><strong>Squadra non disponibile</strong>Non fai parte di questa squadra, oppure la tua richiesta è ancora in attesa di approvazione.</div></div>`; return; } }
       catch (e) { toast(errMsg(e)); return; }
       subscribe(id); S.teamLoadedAt = Date.now();
     } else {

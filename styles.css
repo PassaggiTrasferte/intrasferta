@@ -479,3 +479,6 @@ body.has-bnav{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 .wait-box{position:relative;width:96px;height:96px;border-radius:24px;background:#fff;box-shadow:0 10px 30px rgba(22,32,46,.22);display:grid;place-items:center}
 .wait-box img{border-radius:13px;position:relative}
 .wait-ring{position:absolute;left:50%;top:50%;width:76px;height:76px;margin:-38px 0 0 -38px;border-radius:50%;border:3px solid var(--accent-soft);border-top-color:var(--brand);animation:spin .9s linear infinite}
+.onb-top{position:relative;display:flex;align-items:center;justify-content:center;min-height:44px;margin-bottom:10px}
+.onb-top .onb-back{position:absolute;left:0;top:0;margin:0}
+.onb-top-logo{height:30px;width:auto}
