@@ -4,6 +4,9 @@
   "use strict";
 
   const CFG = window.INTRASFERTA_CONFIG || {};
+  // banner sponsor in cima alle trasferte: spento finché gli sponsor non danno il consenso
+  // (per riaccenderlo: SHOW_SPONSORS: true in config.js). La gestione nel pannello resta attiva.
+  const SHOW_SPONSORS = CFG.SHOW_SPONSORS === true;
   const SPORTS = window.SPORTS, SPORT_ORDER = window.SPORT_ORDER;
   const $app = document.getElementById("app");
 
@@ -117,6 +120,33 @@
     auth: { flowType: "pkce", persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
   });
 
+  // ---------- provenienza: link "firmati" genigo.it/?da=canale (es. ig-bio) ----------
+  // si conta l'apertura in forma anonima e si ricorda il canale per 7 giorni, per chi poi si registra
+  (function trackSource() {
+    try {
+      const u = new URL(location.href);
+      const src = (u.searchParams.get("da") || "").toLowerCase().trim();
+      if (!u.searchParams.has("da")) return;
+      u.searchParams.delete("da");
+      history.replaceState(history.state, "", u.pathname + u.search + u.hash);
+      if (!/^[a-z0-9_-]{1,40}$/.test(src)) return;
+      let vid = store("it-vid");
+      if (!vid || !/^[A-Za-z0-9_-]{8,40}$/.test(vid)) { vid = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => (b % 36).toString(36)).join(""); store("it-vid", vid); }
+      store("it-src", JSON.stringify({ s: src, t: Date.now() }));
+      window.__bgLoad = true;
+      sb.rpc("track_visit", { p_source: src, p_visitor: vid }).then(() => {}, () => {});
+      window.__bgLoad = false;
+    } catch (e) { /* conteggio facoltativo */ }
+  })();
+  // dopo la registrazione: il canale da cui era arrivato (una volta sola, solo per gli account nuovi)
+  function saveSignupSource() {
+    let p = null; try { p = JSON.parse(store("it-src") || "null"); } catch (e) { p = null; }
+    if (!p || !p.s) return;
+    store("it-src", null);
+    if (Date.now() - (Number(p.t) || 0) > 7 * 86400e3) return;
+    sb.rpc("set_signup_source", { p_source: p.s }).then(() => {}, () => {});
+  }
+
   // ---------- stato ----------
   const S = {
     session: null, user: null, profile: null,
@@ -172,6 +202,7 @@
     S.profile = (prof && prof.data) || { id: S.user.id, display_name: "", phone: "" };
     S.platformAdmin = !!(adm && adm.data === true);
     if (S.profile.phone == null) S.profile.phone = "";
+    saveSignupSource();
     return S.profile;
   }
 
@@ -370,6 +401,7 @@
         <li><b>Squadre:</b> le squadre a cui partecipi, il tuo ruolo e il nome dei tuoi atleti.</li>
         <li><b>Passaggi:</b> auto offerte, posti prenotati, richieste, punti di partenza e orari che inserisci.</li>
         <li><b>Consensi:</b> cosa hai accettato e quando.</li>
+        <li><b>Provenienza:</b> se arrivi da un nostro link pubblicato (es. su Instagram), il nome di quel canale; le aperture del link sono contate in forma anonima, senza cookie di tracciamento.</li>
         <li><b>Statistiche d'uso</b> (solo se le attivi): giorni di apertura dell'app e uso delle funzioni, senza dati di posizione.</li></ul>
       <p>Non raccogliamo indirizzi di casa, posizione in tempo reale o dati di pagamento.</p>
       <h3>Dati dei minori</h3>
@@ -377,6 +409,7 @@
       <h3>Perché e su quale base</h3>
       <ul><li>Far funzionare il servizio che hai richiesto: account, squadre e passaggi (esecuzione del servizio).</li>
         <li>Conservare la prova dei consensi e delle dichiarazioni (obbligo e legittimo interesse a tutela del servizio).</li>
+        <li>Capire quali canali di comunicazione funzionano, tramite il canale di provenienza (legittimo interesse).</li>
         <li>Inviarti novità via email e raccogliere statistiche d'uso, solo con il tuo consenso, revocabile in ogni momento.</li></ul>
       <h3>Chi vede i tuoi dati</h3>
       <p>Il tuo nome, il cellulare e il nome dei tuoi atleti sono visibili solo ai membri delle tue squadre. <b>Non vendiamo né cediamo dati a terzi e non facciamo pubblicità profilata.</b> Gli sponsor mostrati nell'app non ricevono dati personali: conteggiamo solo visualizzazioni e clic in forma aggregata.</p>
@@ -1120,8 +1153,8 @@
     const { data, error } = await sb.rpc("admin_stats");
     if (error || !data) { $app.innerHTML = topBar({ title: "Amministrazione", back: "#/profilo" }) + `<div class="wrap"><div class="empty"><strong>Dati non disponibili</strong>${esc(errMsg(error))}</div></div>`; return; }
     S.adminData = data;
-    const [l, r] = await Promise.all([sb.from("sponsors").select("*").eq("scope", "platform").order("created_at"), sb.rpc("sponsor_report", { p_team: null })]);
-    S.platSponsors = l.data || []; S.platSponsorStats = r.data || [];
+    const [l, r, so] = await Promise.all([sb.from("sponsors").select("*").eq("scope", "platform").order("created_at"), sb.rpc("sponsor_report", { p_team: null }), sb.rpc("source_stats").then((x) => x, () => ({ data: null }))]);
+    S.platSponsors = l.data || []; S.platSponsorStats = r.data || []; S.srcStats = so.data || null;
     renderAdmin();
   }
   const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
@@ -1146,6 +1179,7 @@
       <div class="card"><div class="label">Utenti</div><div class="stats">
         ${tile(U.total, "registrati")}${tile(U.with_team, "in una squadra")}${tile(U.active_7d, "attivi 7 gg")}${tile(U.active_30d, "attivi 30 gg")}${tile(U.new_30d, "nuovi 30 gg")}${tile(U.signin_30d, "accessi 30 gg")}
       </div></div>
+      ${sourceCard()}
       <div class="card"><div class="label">Squadre</div><div class="stats">
         ${tile(T.total, "registrate")}${tile(T.active_30d, "attive 30 gg")}${tile(T.dormant, "mai usate", T.dormant > 0)}
       </div><div class="small muted">Piani: ${plans}<br>Sport: ${sports}</div></div>
@@ -1165,12 +1199,32 @@
         <tbody>${list.map((t) => `<tr><td><b>${esc(t.name)}</b><div class="small muted">${esc(sportName(t.sport))}${t.category ? " · " + esc(t.category) : ""} · ${esc(t.plan)}${t.pending ? " · " + t.pending + " in attesa" : ""}</div></td><td class="num">${t.members}</td><td class="num">${t.events}${t.events_upcoming ? ` <span class="muted">(${t.events_upcoming})</span>` : ""}</td><td class="num">${t.rides}</td><td class="num">${t.bookings}</td><td class="num">${t.ai_imports}</td><td>${ago(t.last_activity)}</td></tr>`).join("") || `<tr><td colspan="7" class="muted">Nessuna squadra.</td></tr>`}</tbody></table></div>
         <div class="small muted">Trasferte: totale (in programma). Squadre "attive": almeno un'auto o una prenotazione e attività negli ultimi 30 giorni.</div></div>
       <div class="card"><div class="between"><div class="label">Sponsor della piattaforma · ${(S.platSponsors || []).length}</div>${S.ui.spEdit ? "" : `<button class="btn-primary" data-act="sp-new">+ Aggiungi</button>`}</div>
-        <div class="small muted">Compaiono a rotazione nel banner in cima alle trasferte delle squadre degli sport scelti (fino a 10 per squadra, in ordine casuale), salvo le squadre Premium con sponsor propri attivi.</div>
+        ${SHOW_SPONSORS ? "" : `<div class="notice small">Banner sponsor <b>spento</b>: le squadre non lo vedono finché non lo riattiviamo.</div>`}<div class="small muted">Compaiono a rotazione nel banner in cima alle trasferte delle squadre degli sport scelti (fino a 10 per squadra, in ordine casuale), salvo le squadre Premium con sponsor propri attivi.</div>
         ${sponsorList(S.platSponsors || [], S.platSponsorStats, "platform")}</div>
       ${S.ui.spEdit ? sponsorForm(S.ui.spEdit === "new" ? null : (S.platSponsors || []).find((x) => x.id === S.ui.spEdit), "platform") : ""}
       <button class="btn-ghost" data-act="admin-refresh">Aggiorna</button>
     </div>` + footer() + (S.team ? bottomNav(S.team.id, "admin") : "");
     document.body.classList.remove("sheet-open"); if (S.team) document.body.classList.add("has-bnav");
+  }
+  // ----- provenienza: aperture dai link firmati e registrazioni per canale -----
+  function sourceCard() {
+    const D = S.srcStats;
+    if (!D) return `<div class="card"><div class="label">Provenienza</div><div class="small muted">Non ancora attiva: va eseguito l'aggiornamento 17 su Supabase.</div></div>`;
+    const L = D.sources || [], P = D.people || [];
+    const all = !!S.ui.srcAll, sel = S.ui.srcSel || "";
+    const people = sel ? P.filter((x) => x.source === sel) : P;
+    const shown = all ? people : people.slice(0, 10);
+    const tot = L.reduce((a, x) => ({ v: a.v + x.visitors, s: a.s + x.signups, t: a.t + x.in_team }), { v: 0, s: 0, t: 0 });
+    return `<div class="card src-card"><div class="label">Provenienza · link firmati</div>
+      <div class="small muted">Usa link come <b>genigo.it/?da=ig-bio</b> (bio Instagram) o <b>genigo.it/?da=ig-storia</b>: la parte dopo <b>da=</b> è il nome del canale (lettere minuscole, numeri e trattini).</div>
+      ${L.length ? `<div class="tablewrap"><table class="src-tab"><thead><tr><th>Canale</th><th class="num">Aperture</th><th class="num">Iscritti</th><th class="num">%</th><th class="num">In<br>squadra</th></tr></thead>
+        <tbody>${L.map((x) => `<tr class="${sel === x.source ? "sel" : ""}"><td><button class="btn-link" data-act="src-sel" data-v="${esc(x.source)}">${esc(x.source)}</button>${x.first_day ? `<div class="small muted">dal ${esc(x.first_day.slice(8, 10) + "/" + x.first_day.slice(5, 7))}</div>` : ""}</td><td class="num">${fmt(x.visitors)}</td><td class="num"><b>${fmt(x.signups)}</b></td><td class="num">${x.visitors ? pct(x.signups, x.visitors) + "%" : "—"}</td><td class="num">${fmt(x.in_team)}</td></tr>`).join("")}</tbody>
+        ${L.length > 1 ? `<tfoot><tr><td><b>Totale</b></td><td class="num">${fmt(tot.v)}</td><td class="num"><b>${fmt(tot.s)}</b></td><td class="num">${tot.v ? pct(tot.s, tot.v) + "%" : "—"}</td><td class="num">${fmt(tot.t)}</td></tr></tfoot>` : ""}</table></div>
+        <div class="small muted">Aperture: telefoni diversi che hanno aperto il link (anonimi). Iscritti: nuovi account arrivati da quel link entro 7 giorni. Tocca un canale per vedere chi.</div>` : `<div class="empty small"><strong>Nessuna apertura ancora</strong>Metti il link firmato nella bio di Instagram o nelle storie.</div>`}
+      ${P.length ? `<div class="between"><div class="label">Chi si è registrato${sel ? " da " + esc(sel) : ""} · ${people.length}</div>${sel ? `<button class="btn-link" data-act="src-sel" data-v="">Tutti i canali</button>` : ""}</div>
+        <ul class="src-people">${shown.map((x) => `<li><div><b>${esc(x.name || x.email || "—")}</b><div class="small muted">${x.name && x.email ? esc(x.email) + " · " : ""}${x.teams ? esc(x.teams) : "<i>non ancora in una squadra</i>"}</div></div><div class="small muted" style="text-align:right"><span class="tag">${esc(x.source)}</span><br>${ago(x.created_at)}</div></li>`).join("")}</ul>
+        ${people.length > 10 ? `<button class="btn-link" data-act="src-all">${all ? "Mostra meno" : `Mostra tutti (${people.length})`}</button>` : ""}` : ""}
+    </div>`;
   }
   function adminCSV() {
     const L = S.adminData.team_list || [];
@@ -1549,7 +1603,7 @@
   const spSecs = (sp) => Math.min(60, Math.max(3, Number(sp?.seconds) || 6));
   // banner orizzontale (3:1) con immagine o video, a rotazione: solo nella pagina Trasferte
   function sponsorBanner() {
-    const L = S.sponsors || []; if (!L.length) return "";
+    const L = S.sponsors || []; if (!SHOW_SPONSORS || !L.length) return "";
     const slide = (sp, i) => {
       const media = !sp.logo_path ? `<div class="sp-fallback"><b>${esc(sp.name)}</b>${sp.message ? `<span>${esc(sp.message)}</span>` : ""}</div>`
         : isVideo(sp) ? `<video src="${esc(logoUrl(sp.logo_path))}" muted playsinline loop preload="metadata" aria-label="${esc(sp.name)}"></video>`
@@ -1598,7 +1652,7 @@
     if (!seen) { try { sessionStorage.setItem(k, "1"); } catch (e) {} sb.rpc("sponsor_hit", { p_sponsor: sp.id, p_team: S.team.id, p_kind: "view" }).then(() => {}, () => {}); }
   }
   function countSponsorViews() {
-    if (!S.team || !(S.sponsors || []).length) return;
+    if (!SHOW_SPONSORS || !S.team || !(S.sponsors || []).length) return;
     if (document.querySelector(".sp-banner")) startSponsorRotation();
     else { clearTimeout(spTimer); spTimer = null; }
   }
@@ -2172,6 +2226,8 @@
       "admin-csv": () => adminCSV(),
       "admin-refresh": () => viewAdmin(),
       "sp-goto": () => { spShow(Number(b.dataset.v)); startSponsorRotation(); },
+      "src-sel": () => { S.ui.srcSel = S.ui.srcSel === b.dataset.v ? "" : b.dataset.v; S.ui.srcAll = false; renderAdmin(); },
+      "src-all": () => { S.ui.srcAll = !S.ui.srcAll; renderAdmin(); },
       "sp-new": () => { S.ui.spEdit = "new"; S.ui.confirm = null; rerenderSp(); },
       "sp-edit": () => { S.ui.spEdit = id; S.ui.confirm = null; rerenderSp(); },
       "sp-cancel": () => { S.ui.spEdit = null; S.ui.confirm = null; rerenderSp(); },

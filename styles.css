@@ -541,3 +541,21 @@ body.sheet-open{overflow:hidden}
 .wrap > .sp-banner:first-child{margin-top:-16px;border-top:0;border-radius:0 0 14px 14px}
 @media (max-width:792px){.wrap > .sp-banner:first-child{border-radius:0}}
 .sp-sports[hidden]{display:none!important}
+/* su tablet e PC anche la barra scura in alto è larga quanto le schede */
+@media (min-width:793px){
+  .top{max-width:728px;margin:0 auto;border-radius:0 0 18px 18px}
+  body:has(.wrap > .sp-banner:first-child) .top{border-radius:0}
+}
+/* pannello Admin: provenienza */
+.src-people{list-style:none;margin:0;padding:0;display:grid}
+.src-people li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line)}
+.src-people li:first-child{border-top:0}
+.src-people li>div:first-child{min-width:0}
+tr.sel td{background:var(--ok-soft)}
+tfoot td{border-top:2px solid var(--line)}
+.src-tab th,.src-tab td{padding:8px 4px;font-size:.92rem;vertical-align:top}
+.src-tab th{font-size:.7rem;line-height:1.15}
+.src-tab td:first-child .btn-link{padding:0;min-height:0;white-space:nowrap;font-weight:700;text-align:left}
+.src-tab td:first-child{padding-left:0}
+.src-card > *{min-width:0}
+.src-people li>div:last-child{flex:none;white-space:nowrap}
