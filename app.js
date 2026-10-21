@@ -449,16 +449,22 @@
         </div>
       </section>`;
     },
-    login: () => `<form class="onb" data-form="login-pw">
+    login: () => `<form class="onb" data-form="onb-login">
         ${onbBack("onb-login-back")}
         <h1 class="onb-h">Accedi</h1>
-        <p class="onb-sub">Bentornato! Entra con la tua email e la password.</p>
+        <p class="onb-sub">Scrivi la tua email: ti mandiamo un codice per entrare. Nessuna password da ricordare.</p>
+        <label class="onb-group"><input type="email" name="email" required autocomplete="email" placeholder="La tua email" value="${esc(S.ui.lastEmail || "")}"></label>
+        <button class="onb-btn onb-btn-top" type="submit">Mandami il codice</button>
+        <p class="onb-small" style="margin-top:14px">Non hai un account? <button type="button" class="btn-link" data-act="landing-back">Inizia da qui</button></p>
+        <p class="onb-small"><button type="button" class="btn-link" data-act="onb-loginpw">Hai impostato una password? Entra con la password</button></p>
+      </form>`,
+    loginpw: () => `<form class="onb" data-form="login-pw">
+        ${onbBack("onb-login")}
+        <h1 class="onb-h">Entra con la password</h1>
         <label class="onb-group"><input type="email" name="email" required autocomplete="email" placeholder="La tua email" value="${esc(S.ui.lastEmail || "")}"></label>
         <label class="onb-group pw-wrap"><input type="password" name="password" required maxlength="72" autocomplete="current-password" placeholder="Password"><button type="button" class="btn-link pw-eye" data-act="pw-show">Mostra</button></label>
         <button class="onb-btn onb-btn-top" type="submit">Entra</button>
-        <div class="onb-group onb-help"><b>Non hai ancora una password o non la ricordi?</b>
-          <p>Ti mandiamo un codice alla tua email: lo inserisci e scegli la password.</p>
-          <button type="button" class="onb-btn onb-btn-light onb-btn-sm" data-act="pw-send-code">Mandami un codice</button></div>
+        <p class="onb-small" style="margin-top:14px"><button type="button" class="btn-link" data-act="onb-login">Non la ricordi? Entra con un codice via email</button></p>
       </form>`,
     loading: () => `<section class="onb"><div class="onb-mid"><div class="boot">Controllo l'invito…</div></div></section>`,
     welcome: () => `<section class="onb">
@@ -518,8 +524,7 @@
         <div class="onb-row"><label class="onb-group"><input name="first" required maxlength="40" autocomplete="given-name" placeholder="Nome" value="${esc(a.first || "")}"></label>
           <label class="onb-group"><input name="last" required maxlength="40" autocomplete="family-name" placeholder="Cognome" value="${esc(a.last || "")}"></label></div>
         <label class="onb-group"><input type="email" name="email" required autocomplete="email" placeholder="La tua email" value="${esc(a.email || S.ui.lastEmail || "")}"></label>
-        <label class="onb-group pw-wrap"><input type="password" name="pw1" required minlength="8" maxlength="72" autocomplete="new-password" placeholder="Scegli una password"><button type="button" class="btn-link pw-eye" data-act="pw-show">Mostra</button></label>
-        <div class="onb-rules pw-rules"><span data-r="len">○ almeno 8 caratteri</span> <span data-r="mix">○ lettere e numeri</span></div>
+        <p class="onb-note" style="margin-top:-4px">Ti mandiamo un codice a questa email per confermarla: niente password da ricordare.</p>
         <label class="onb-check"><input type="checkbox" name="terms" required ${a.terms ? "checked" : ""}><span>Accetto i <a href="#/termini" target="_blank">Termini d'uso</a> e l'<a href="#/privacy" target="_blank">Informativa privacy</a></span></label>
         <label class="onb-check"><input type="checkbox" name="parent" required ${a.parent ? "checked" : ""}><span>Sono il genitore, o chi ne fa le veci, degli atleti che inserisco</span></label>
         <label class="onb-switch"><input type="checkbox" name="news" ${a.news ? "checked" : ""}><span>Novità e consigli d'uso via email</span></label>
@@ -529,9 +534,9 @@
       </form>`;
     },
     verify: () => {
-      const a = pendGet("it-acct") || {};
+      const a = S.ui.verifyEmail ? { email: S.ui.verifyEmail } : (pendGet("it-acct") || {});
       return `<form class="onb" data-form="onb-verify">
-        ${onbBack("onb-signup")}
+        ${onbBack(S.ui.verifyEmail ? "onb-login" : "onb-signup")}
         <div class="onb-center onb-verify">
           <p>Il codice di verifica è stato inviato a</p>
           <p class="onb-mail">${esc(a.email || "")}</p>
@@ -699,14 +704,15 @@
   }
   function securityCard() {
     return `<form class="card form" data-form="change-pw" id="sicurezza">
-      <div class="full label">Sicurezza</div>
-      <div class="full small">Accesso con <b>${esc(S.user.email || "")}</b></div>
-      ${pwField("pw1", "Nuova password")}
+      <div class="full label">Accesso</div>
+      <div class="full small">Entri con <b>${esc(S.user.email || "")}</b> e un codice che ti mandiamo via email: non serve una password. Su questo telefono resti collegato finché non esci.</div>
+      <div class="full small muted">Facoltativo: se preferisci, puoi impostare una password e usarla al posto del codice.</div>
+      ${pwField("pw1", pwSet() ? "Nuova password" : "Password (facoltativa)")}
       ${pwField("pw2", "Ripeti la nuova password")}
       ${pwRules()}
       ${S.ui.pwNonce ? `<label class="full">Codice ricevuto via email<input name="nonce" inputmode="numeric" autocomplete="one-time-code" required placeholder="123456"><span class="small muted" style="font-weight:400">Per sicurezza ti abbiamo mandato un codice a ${esc(S.user.email || "")}: inseriscilo per confermare.</span></label>`
         : `<p class="full small muted" style="margin:0">Se non entri da un po', per sicurezza ti mandiamo un codice via email prima di cambiarla.</p>`}
-      <div class="actions"><button class="btn-primary" type="submit">Cambia password</button></div>
+      <div class="actions"><button class="btn-ghost" type="submit">${pwSet() ? "Cambia password" : "Imposta password"}</button></div>
     </form>`;
   }
   // imposta la password; se Supabase chiede una verifica, manda il codice e la chiede
@@ -772,7 +778,7 @@
       toast(errMsg(e));
     }
     if (pendGet("it-acct")) await applyPending();
-    if (!pwSet() || store("it-forcepw") === "1") return viewSetPassword();
+    if (store("it-forcepw") === "1") return viewSetPassword(); // solo dopo «password dimenticata» da chi la usa
     if (!consentsOk()) return viewConsents();
     if (!S.profile?.display_name) return viewName();
     if (S.myKids && (!S.profile.last_name || S.myKids.some((k) => !k.last_name))) return viewFillSurnames();
@@ -2022,6 +2028,8 @@
       "landing-create": () => { store("it-next", "#/new"); pendSet("it-pend", null); S.ui.landing = "signup"; viewLogin(); },
       "onb-to-code": () => { S.ui.landing = "code"; viewLogin(); },
       "onb-login-back": () => { const p = pendGet("it-pend"), nx = store("it-next") || ""; S.ui.landing = nx.startsWith("#/genitore/") ? "kidinv" : p && (p.kids || []).length ? "almost" : "welcome"; viewLogin(); },
+      "onb-login": () => { S.ui.verifyEmail = null; S.ui.landing = "login"; viewLogin(); },
+      "onb-loginpw": () => { S.ui.landing = "loginpw"; viewLogin(); },
       "onb-to-kidinv": () => { S.ui.landing = "kidinv"; viewLogin(); },
       "onb-to-kids": () => { S.ui.landing = "kids"; viewLogin(); },
       "onb-to-almost": () => { S.ui.landing = pendGet("it-pend") ? "almost" : "welcome"; viewLogin(); },
@@ -2029,8 +2037,8 @@
       "onb-kid-add": () => { const f = document.querySelector('[data-form="onb-kids"]'); const p = pendGet("it-pend"); p.kids = onbReadKids(f); const last = (p.kids[p.kids.length - 1] || {}).last || ""; p.kids.push({ first: "", last }); pendSet("it-pend", p); viewLogin(); document.querySelector(`.onb-kid[data-i="${p.kids.length - 1}"] input`)?.focus(); },
       "onb-kid-del": () => { const f = document.querySelector('[data-form="onb-kids"]'); const p = pendGet("it-pend"); p.kids = onbReadKids(f); p.kids.splice(Number(b.dataset.i), 1); pendSet("it-pend", p); viewLogin(); },
       "onb-resend": async () => {
-        const a = pendGet("it-acct"); if (!a) return;
-        b.disabled = true; const { error } = await sb.auth.resend({ type: "signup", email: a.email, options: { emailRedirectTo: location.origin + location.pathname } });
+        const email = S.ui.verifyEmail || (pendGet("it-acct") || {}).email; if (!email) return;
+        b.disabled = true; const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: !S.ui.verifyEmail } });
         b.disabled = false; toast(error ? errMsg(error) : "Codice inviato di nuovo");
       },
       "landing-join": () => { store("it-next", null); S.ui.landing = pendGet("it-pend") ? "kids" : "code"; viewLogin(); },
@@ -2197,25 +2205,28 @@
         S.ui.landing = "almost"; viewLogin(); return;
       }
       if (kind === "onb-signup") {
-        const pw = String(fd.get("pw1") || "");
-        if (!pwOk(pw)) { toast(ERRORS.pw_weak || "La password deve avere almeno 8 caratteri, con lettere e numeri"); if (btn) btn.disabled = false; return; }
         const a = { first: v("first"), last: v("last"), email: v("email").toLowerCase(), terms: true, parent: true, news: fd.get("news") === "on", stats: fd.get("stats") === "on" };
-        pendSet("it-acct", a); S.ui.lastEmail = a.email;
-        const { data, error } = await sb.auth.signUp({ email: a.email, password: pw, options: { emailRedirectTo: location.origin + location.pathname, data: { pw_set: true, first_name: a.first, last_name: a.last } } });
+        pendSet("it-acct", a); S.ui.lastEmail = a.email; S.ui.verifyEmail = null;
+        // solo codice via email: se l'email ha già un account, il codice serve per entrare
+        const { error } = await sb.auth.signInWithOtp({ email: a.email, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: true, data: { first_name: a.first, last_name: a.last } } });
         if (error) throw error;
-        if (data && data.user && Array.isArray(data.user.identities) && !data.user.identities.length) {
-          // email già registrata: si entra con la password (o con un codice)
-          toast("Questa email ha già un account: entra con la tua password"); S.ui.landing = "login"; viewLogin(); return;
-        }
-        if (data && data.session) return; // conferma email non richiesta: il cambio di sessione apre l'app
         S.ui.landing = "verify"; viewLogin(); return;
       }
+      if (kind === "onb-login") {
+        const email = v("email").toLowerCase(); S.ui.lastEmail = email;
+        const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: false } });
+        if (error) {
+          if (/signup|not allowed|not found/i.test(error.message || "")) { toast("Non troviamo un account con questa email: entra con il codice della squadra"); if (btn) btn.disabled = false; return; }
+          throw error;
+        }
+        S.ui.verifyEmail = email; S.ui.landing = "verify"; viewLogin(); return;
+      }
       if (kind === "onb-verify") {
-        const a = pendGet("it-acct") || {}, token = v("code").replace(/\s+/g, "");
-        let r = await sb.auth.verifyOtp({ email: a.email, token, type: "signup" });
-        if (r.error) r = await sb.auth.verifyOtp({ email: a.email, token, type: "email" });
+        const email = S.ui.verifyEmail || (pendGet("it-acct") || {}).email, token = v("code").replace(/\s+/g, "");
+        let r = await sb.auth.verifyOtp({ email, token, type: "email" });
+        if (r.error) r = await sb.auth.verifyOtp({ email, token, type: "signup" });
         if (r.error) { toast("Codice non valido o scaduto"); if (btn) btn.disabled = false; return; }
-        S.ui.landing = null; return; // il cambio di sessione apre l'app
+        S.ui.landing = null; S.ui.verifyEmail = null; return; // il cambio di sessione apre l'app
       }
       if (kind === "login-pw") {
         S.ui.lastEmail = v("email");
