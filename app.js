@@ -868,7 +868,7 @@
       const evIds = events.map((e) => e.id);
       if (evIds.length) {
         rides = (await sb.from("rides").select("id,event_id,seats").in("event_id", evIds)).data || [];
-        bookings = (await sb.from("bookings").select("id,ride_id").in("event_id", evIds)).data || [];
+        bookings = (await sb.from("bookings").select("*").in("event_id", evIds)).data || [];
       }
     }
     const pending = S.memberships.filter((m) => m.status === "pending");
@@ -877,7 +877,7 @@
       const evs = events.filter((e) => e.team_id === t.id);
       const nextEv = evs[0];
       const noCar = evs.filter((e) => !rides.some((r) => r.event_id === e.id)).length;
-      const free = rides.filter((r) => evs.some((e) => e.id === r.event_id)).reduce((a, r) => a + Math.max(0, r.seats - bookings.filter((b) => b.ride_id === r.id).length), 0);
+      const free = rides.filter((r) => evs.some((e) => e.id === r.event_id)).reduce((a, r) => a + Math.max(0, r.seats - seatsOf(bookings.filter((b) => b.ride_id === r.id))), 0);
       return `<a class="card teamcard" href="#/t/${t.id}/trasferte">
         <div class="between"><div><h2>${esc(t.name)}</h2><div class="meta">${esc(sportOf(t).label)}${t.category ? " · " + esc(t.category) : ""} · ${esc(t.season)}</div></div>
         <span class="chip ${m.role === "admin" ? "navy" : ""}">${m.role === "admin" ? "Amministratore" : "Genitore"}</span></div>
@@ -1065,7 +1065,6 @@
           : `<div><button class="btn-ghost" data-act="code-open-p">Ho un codice d'invito</button></div>`}
         ${Object.values(S.mesById || {}).some((m) => m && m.role === "admin") || (S.me && S.me.role === "admin") ? `<div class="small muted">Sei un allenatore o un dirigente? <a href="#/new">Registra una squadra</a></div>` : ""}</div>
       <a class="btn btn-ghost btn-block" href="#/">← Torna alle trasferte</a>
-      ${S.platformAdmin ? `<a class="btn btn-primary btn-block" href="#/admin">Pannello di amministrazione</a>` : ""}
       ${privacyCard()}
       <div class="card small">
         ${S.ui.confirmLogout ? `<div><b>Vuoi uscire da geniGO su questo dispositivo?</b></div>
@@ -1143,7 +1142,7 @@
       return `<rect x="${x}" y="${100 - h1}" width="10" height="${h1}" rx="2" class="b1"><title>Settimana ${w.week}: ${w.active_users} utenti attivi</title></rect><rect x="${x + 11}" y="${100 - h2}" width="10" height="${h2}" rx="2" class="b2"><title>Settimana ${w.week}: ${w.bookings} posti prenotati</title></rect>`; }).join("");
     const plans = Object.entries(T.by_plan || {}).map(([k, v]) => `${esc(k)}: <b>${v}</b>`).join(" · ") || "—";
     const sports = Object.entries(T.by_sport || {}).map(([k, v]) => `${esc(sportName(k))}: <b>${v}</b>`).join(" · ") || "—";
-    $app.innerHTML = topBar({ title: "Amministrazione", sub: "Visibile solo a te · aggiornato " + new Date(D.generated_at).toLocaleString("it-IT"), back: "#/profilo" }) + `<div class="wrap">
+    $app.innerHTML = topBar({ title: "Amministrazione", sub: "Visibile solo a te · aggiornato " + new Date(D.generated_at).toLocaleString("it-IT"), back: S.team ? "" : "#/profilo" }) + `<div class="wrap">
       <div class="card"><div class="label">Utenti</div><div class="stats">
         ${tile(U.total, "registrati")}${tile(U.with_team, "in una squadra")}${tile(U.active_7d, "attivi 7 gg")}${tile(U.active_30d, "attivi 30 gg")}${tile(U.new_30d, "nuovi 30 gg")}${tile(U.signin_30d, "accessi 30 gg")}
       </div></div>
@@ -1170,7 +1169,8 @@
         ${sponsorList(S.platSponsors || [], S.platSponsorStats, "platform")}</div>
       ${S.ui.spEdit ? sponsorForm(S.ui.spEdit === "new" ? null : (S.platSponsors || []).find((x) => x.id === S.ui.spEdit), "platform") : ""}
       <button class="btn-ghost" data-act="admin-refresh">Aggiorna</button>
-    </div>` + footer();
+    </div>` + footer() + (S.team ? bottomNav(S.team.id, "admin") : "");
+    if (S.team) document.body.classList.add("has-bnav");
   }
   function adminCSV() {
     const L = S.adminData.team_list || [];
@@ -1324,14 +1324,16 @@
     return tabs;
   }
   const GEST_SUB = ["impostazioni", "mezzi", "report", "sponsor"];
-  const NAV_ICO = { trasferte: "🚗", membri: "👥", invita: "➕", risparmio: "🌱", gestisci: "⚙️", profilo: "👤" };
+  const NAV_ICO = { trasferte: "🚗", membri: "👥", invita: "➕", risparmio: "🌱", gestisci: "⚙️", profilo: "👤", admin: "📊" };
   function bottomNav(teamId, active) {
     const adm = adminTeamIds().length > 0;
     const items = [["trasferte", "Trasferte"], ["membri", "Membri"], ["invita", "Invita"], adm ? ["gestisci", "Gestisci"] : ["risparmio", "Risparmio"], ["profilo", "Profilo"]];
+    // pannello della piattaforma: solo per il gestore di geniGO
+    if (S.platformAdmin) items.push(["admin", "Admin"]);
     const cur = active || currentTab;
     const act = GEST_SUB.includes(cur) || (adm && cur === "risparmio") ? "gestisci" : cur;
     const pend = isAdmin() ? (S.members || []).filter((m) => m.status === "pending").length : 0;
-    return `<nav class="bnav noprint" aria-label="Sezioni">${items.map(([k, l]) => `<a href="${k === "profilo" ? "#/profilo" : `#/t/${teamId}/${k}`}" ${k === act ? 'aria-current="page"' : ""}><span class="bnav-ico" aria-hidden="true">${NAV_ICO[k]}</span>${l}${k === "membri" && pend ? `<b class="bnav-dot" aria-label="${pend} in attesa">${pend}</b>` : ""}</a>`).join("")}</nav>`;
+    return `<nav class="bnav noprint" aria-label="Sezioni">${items.map(([k, l]) => `<a href="${k === "profilo" ? "#/profilo" : k === "admin" ? "#/admin" : `#/t/${teamId}/${k}`}" ${k === act ? 'aria-current="page"' : ""}><span class="bnav-ico" aria-hidden="true">${NAV_ICO[k]}</span>${l}${k === "membri" && pend ? `<b class="bnav-dot" aria-label="${pend} in attesa">${pend}</b>` : ""}</a>`).join("")}</nav>`;
   }
   function tabManage() {
     const tid = S.team.id, pr = adminTeamIds().some((x) => premium(teamById(x)));
@@ -1655,7 +1657,7 @@
     const rides = S.rides.filter((r) => r.event_id === e.id).sort((a, b) => (a.kind === "club" ? -1 : 0) - (b.kind === "club" ? -1 : 0));
     const bk = S.bookings.filter((b) => b.event_id === e.id);
     const tot = rides.reduce((a, r) => a + r.seats, 0);
-    const free = Math.max(0, tot - bk.length);
+    const free = Math.max(0, tot - seatsOf(bk));
     const booked = new Set(bk.map((b) => b.athlete_name.toLowerCase()));
     const admin = isAdmin();
     const chips = rides.length
@@ -1692,12 +1694,13 @@
 
   function rideBlock(r, e, isPast) {
     const rs = S.bookings.filter((b) => b.ride_id === r.id);
-    const free = Math.max(0, r.seats - rs.length);
+    const usedN = seatsOf(rs);
+    const free = Math.max(0, r.seats - usedN);
     const mine = r.created_by === S.user.id;
     const admin = isAdmin();
     const veh = r.vehicle_id ? S.vehicles.find((v) => v.id === r.vehicle_id) : null;
     const who = r.kind === "club" ? ([veh ? esc(veh.name) : "", r.driver_name ? "autista " + esc(r.driver_name) : ""].filter(Boolean).join(" · ") || "pulmino") : esc(r.driver_name);
-    const dots = Array.from({ length: Math.min(r.seats, 20) }, (_, i) => `<span class="seat ${i < rs.length ? "taken" : ""}"></span>`).join("");
+    const dots = Array.from({ length: Math.min(r.seats, 20) }, (_, i) => `<span class="seat ${i < usedN ? "taken" : ""}"></span>`).join("");
     const canBook = !isPast && free > 0 && (r.assignment === "booking" || admin);
     const confirming = S.ui.confirm === "ride:" + r.id;
     const open = !!(S.ui.rideOpen || {})[r.id];
@@ -1712,7 +1715,7 @@
       <div class="ride-top"><span class="driver">${who}</span><span class="chip ${free ? "ok" : "warn"}">${free ? free + (free === 1 ? " libero" : " liberi") : "Pieno"}</span></div>
       <div class="meta">${r.depart_time ? `🕔 <b>${esc(r.depart_time)}</b> · ` : ""}${esc(r.depart_from || "—")} · ${r.return_trip ? "andata e ritorno" : "solo andata"}${details.length ? ` · <button class="btn-link" data-act="ride-more" data-id="${r.id}">${open ? "meno" : "dettagli"}</button>` : ""}</div>
       ${open ? `<div class="meta">${details.join(" · ")}</div>` : ""}
-      ${rs.length ? `<ul class="pax">${rs.map((b) => `<li><span>${esc(b.athlete_name)}${b.pickup ? ` <small>· sale a ${esc(b.pickup)}</small>` : ""}</span>${!isPast && (b.booked_by === S.user.id || mine || admin) ? `<button class="btn-link danger" data-act="unbook" data-id="${b.id}">Libera</button>` : ""}</li>`).join("")}</ul>` : ""}
+      ${rs.length ? `<ul class="pax">${rs.map((b) => `<li><span>${paxName(b, b.booked_by)}${adultsTag(Number(b.adults) || 0, b.no_athlete)}${b.pickup ? ` <small>· sale a ${esc(b.pickup)}</small>` : ""}</span>${!isPast && (b.booked_by === S.user.id || mine || admin) ? `<button class="btn-link danger" data-act="unbook" data-id="${b.id}">Libera</button>` : ""}</li>`).join("")}</ul>` : ""}
       ${S.ui.book === r.id ? bookForm(r) : ""}
       ${!isPast ? `<div class="row noprint">
         ${canBook && S.ui.book !== r.id ? `<button class="btn-primary btn-sm" data-act="book" data-id="${r.id}">${r.assignment === "convocation" ? "Assegna un posto" : "Prenota"}</button>` : ""}
@@ -1723,6 +1726,23 @@
     </div>`;
   }
 
+  // posti occupati: 1 per atleta + gli adulti che viaggiano con lui
+  const seatsOf = (list) => list.reduce((a, b) => a + (b.no_athlete ? 0 : 1) + (Number(b.adults) || 0), 0);
+  // nome mostrato: le righe di soli adulti mostrano chi le ha chieste
+  const paxName = (b, by) => b.no_athlete ? `👤 ${b.adults === 1 ? "1 adulto" : b.adults + " adulti"} <small>· con ${esc(firstName(member(by).name) || "un genitore")}</small>` : esc(b.athlete_name);
+  const adultsTag = (n, solo) => n && !solo ? ` <span class="chip ad">+ ${n} ${n === 1 ? "adulto" : "adulti"}</span>` : "";
+  const adultsField = () => `<div class="full adults-row"><div><div class="label">Adulti / accompagnatori</div><div class="small muted">genitori, nonni, dirigenti…</div></div>
+      <div class="stepper"><button type="button" class="step-btn" data-act="adults-dec" aria-label="Meno">−</button><input name="adults" type="number" min="0" max="8" value="0" readonly aria-label="Adulti"><button type="button" class="step-btn" data-act="adults-inc" aria-label="Più">+</button></div></div>
+    <div class="full seats-sum" data-seats-sum hidden></div>`;
+  function updSeatsSum(f) {
+    if (!f) return;
+    const box = f.querySelector("[data-seats-sum]"); if (!box) return;
+    const ath = f.querySelectorAll('input[name="athlete"]:checked').length || (f.querySelector('input[name="athlete"]:not([type=checkbox])')?.value.trim() ? 1 : 0);
+    const ad = Number(f.elements.adults?.value) || 0;
+    const tot = ath + ad;
+    box.hidden = !ad;
+    box.innerHTML = `Servono <b>${tot} ${tot === 1 ? "posto" : "posti"}</b>: ${ath ? `${ath} ${ath === 1 ? "atleta" : "atleti"} + ` : "solo "}${ad} ${ad === 1 ? "adulto" : "adulti"}`;
+  }
   const driverPhone = (r) => r.driver_phone || (r.kind === "parent" ? member(r.created_by).phone : "") || "";
 
   function reqBox(e, reqs) {
@@ -1731,8 +1751,10 @@
       <ul>${(reqs.length > 3 && !(S.ui.allReqs || {})[e.id] ? reqs.slice(0, 3) : reqs).map((q) => {
         const mineQ = q.requested_by === S.user.id;
         const dir = DIR[q.direction] || "";
-        return `<li class="req"><div class="req-main"><b>${esc(q.athlete_name)}</b>
-            <div class="req-meta">${dir ? `<span class="tag">${esc(dir.charAt(0).toUpperCase() + dir.slice(1))}</span>` : ""}${q.depart_from ? `<span class="tag">da ${esc(q.depart_from)}</span>` : ""}<span>chiesto da ${mineQ ? "te" : esc(firstName(member(q.requested_by).name))}</span></div></div>
+        const qa = Number(q.adults) || 0;
+        const qn = (q.no_athlete ? 0 : 1) + qa;
+        return `<li class="req"><div class="req-main"><b>${paxName(q, q.requested_by)}</b>${adultsTag(qa, q.no_athlete)}
+            <div class="req-meta">${qn > 1 ? `<span class="tag">${qn} posti</span>` : ""}${dir ? `<span class="tag">${esc(dir.charAt(0).toUpperCase() + dir.slice(1))}</span>` : ""}${q.depart_from ? `<span class="tag">da ${esc(q.depart_from)}</span>` : ""}<span>chiesto da ${mineQ ? "te" : esc(firstName(member(q.requested_by).name))}</span></div></div>
           <div class="req-act">${!mineQ ? `<button class="btn-ok btn-sm" data-act="take" data-id="${q.id}">Lo porto io</button>` : ""}${mineQ || isAdmin() ? `<button class="btn-link danger" data-act="del-req" data-id="${q.id}">Ritira</button>` : ""}</div></li>`;
       }).join("")}</ul>${reqs.length > 3 ? `<button class="btn-link" data-act="all-reqs" data-id="${e.id}">${(S.ui.allReqs || {})[e.id] ? "Mostra meno" : `Mostra altre ${reqs.length - 3} richieste`}</button>` : ""}</div>`;
   }
@@ -1743,9 +1765,10 @@
     const booked = new Set(S.bookings.filter((b) => b.event_id === e.id).map((b) => b.athlete_name.toLowerCase()));
     const asked = new Set(S.requests.filter((q) => q.event_id === e.id).map((q) => q.athlete_name.toLowerCase()));
     const names = myAthletes().filter((n) => !booked.has(n.toLowerCase()) && !asked.has(n.toLowerCase()));
-    if (S.athletesOk && myAthletes().length && !names.length) return `<div class="notice small" style="margin-top:12px">I tuoi atleti hanno già un posto o una richiesta per questa trasferta. <button class="btn-link" data-act="cancel">Chiudi</button></div>`;
+    const kidsDone = S.athletesOk && myAthletes().length && !names.length;
     return `<form class="form" data-form="req" data-id="${e.id}" style="border-top:1px solid var(--line);padding-top:12px">
-      ${names.length ? kidPicker(names, "Per chi?") : `<label>Atleta<input name="athlete" required maxlength="60" placeholder="Nome e cognome"></label>`}
+      ${names.length ? kidPicker(names, "Per chi?") : kidsDone ? `<div class="full small muted">I tuoi atleti hanno già un posto o una richiesta: puoi chiedere un passaggio per uno o più adulti.</div>` : `<label>Atleta (facoltativo se viaggiano solo adulti)<input name="athlete" maxlength="60" placeholder="Nome e cognome"></label>`}
+      ${adultsField()}
       <label>Serve per<select name="direction"><option value="ar">andata e ritorno</option><option value="andata">solo andata</option><option value="ritorno">solo ritorno</option></select></label>
       <label class="full">Da dove parte<input name="from" maxlength="120" placeholder="Es. Buccinasco"></label>
       <div class="actions"><button class="btn-primary" type="submit">Pubblica la richiesta</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
@@ -1786,9 +1809,11 @@
     const mine = myAthletes().filter((n) => !booked.has(n.toLowerCase()));
     const all = roster().map((a) => a.name).filter((n) => !booked.has(n.toLowerCase()));
     const pick = !conv && mine.length;
-    if (!conv && !isAdmin() && S.athletesOk && myAthletes().length && !mine.length) return `<div class="notice small">I tuoi atleti hanno già un posto per questa trasferta. <button class="btn-link" data-act="cancel">Chiudi</button></div>`;
+    const kidsDone = !conv && !isAdmin() && S.athletesOk && myAthletes().length && !mine.length;
     return `<form class="form" data-form="book" data-id="${r.id}">
-      ${pick ? kidPicker(mine, "Chi sale?") + (isAdmin() ? `<label class="full">Altro atleta della squadra (facoltativo)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Nome e cognome"><datalist id="dl-${r.id}">${all.filter((n) => !mine.includes(n)).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>` : "") : `<label>Atleta<input name="athlete" required maxlength="60" list="dl-${r.id}" placeholder="Nome e cognome"><datalist id="dl-${r.id}">${(conv || isAdmin() ? all : mine).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>`}
+      ${kidsDone ? `<div class="full small muted">I tuoi atleti hanno già un posto: puoi prenotare per uno o più adulti.</div>` : ""}
+      ${kidsDone ? "" : pick ? kidPicker(mine, "Chi sale?") + (isAdmin() ? `<label class="full">Altro atleta della squadra (facoltativo)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Nome e cognome"><datalist id="dl-${r.id}">${all.filter((n) => !mine.includes(n)).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>` : "") : `<label>Atleta (facoltativo se salgono solo adulti)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Nome e cognome"><datalist id="dl-${r.id}">${(conv || isAdmin() ? all : mine).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>`}
+      ${adultsField()}
       <label>Dove sale<input name="pickup" maxlength="80" placeholder="Al punto di partenza"></label>
       <div class="actions"><button class="btn-primary" type="submit">${conv ? "Assegna posto" : "Conferma posto"}</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
     </form>`;
@@ -2051,6 +2076,8 @@
       "splash-go": () => { store("it-splash", "1"); S.ui.landing = "welcome"; viewLogin(); },
       "landing-back": () => { if (S.ui.otpPurpose) { S.ui.otpPurpose = null; S.ui.landing = "login"; return viewLogin(); } store("it-next", null); pendSet("it-pend", null); S.ui.landing = "welcome"; S.ui.inviteName = null; viewLogin(); },
       "wait-refresh": () => viewHome(),
+      "adults-inc": () => { const f = b.form, i = f.elements.adults; i.value = Math.min(8, (Number(i.value) || 0) + 1); updSeatsSum(f); },
+      "adults-dec": () => { const f = b.form, i = f.elements.adults; i.value = Math.max(0, (Number(i.value) || 0) - 1); updSeatsSum(f); },
       "code-open": () => { S.ui.codeOpen = true; viewHome(); },
       "kid-more": () => { const box = b.closest(".kids"); const rows = box.querySelectorAll(".kid-row"); const last = rows[0]?.querySelector('input[name^="kl"]')?.value || ""; b.parentElement.insertAdjacentHTML("beforebegin", kidRow("", last, false)); box.querySelectorAll(".kid-row")[rows.length].querySelector("input").focus(); },
       "kid-more-multi": () => { const f = b.closest("form"); const box = f.querySelector(".kids-multi"); const i = box.querySelectorAll(".nk").length; const teams = f.dataset.codes.split(",").map((c) => ({ code: c, name: (S.ui.joinNames || {})[c] || c })); box.insertAdjacentHTML("beforeend", newKidCard(i, teams, S.profile.last_name, false)); box.querySelectorAll(".nk")[i].querySelector("input").focus(); },
@@ -2173,6 +2200,7 @@
   });
 
   document.addEventListener("change", (ev) => {
+    if (ev.target.name === "athlete" && ev.target.form) updSeatsSum(ev.target.form);
     const sel = ev.target.closest('select[name="vehicle"]');
     if (sel) { const o = sel.selectedOptions[0]; const f = sel.form; if (o && f.elements.seats) f.elements.seats.value = o.dataset.seats; }
     const tt = ev.target.closest('select[name="target-team"]');
@@ -2368,9 +2396,18 @@
       }
       if (kind === "req") {
         const who = fd.getAll("athlete").map((x) => String(x).trim()).filter(Boolean);
-        if (!who.length) { toast("Scegli per chi chiedi il passaggio"); if (btn) btn.disabled = false; return; }
-        for (const a of who) {
-          const { error } = await sb.from("ride_requests").insert({ event_id: f.dataset.id, team_id: evTeam(f.dataset.id), athlete_name: a, depart_from: v("from"), direction: v("direction") || "ar", requested_by: S.user.id });
+        const adQ = Math.max(0, Math.min(8, Number(v("adults")) || 0));
+        if (!who.length && !adQ) { toast("Scegli per chi chiedi il passaggio, o indica quanti adulti"); if (btn) btn.disabled = false; return; }
+        if (!who.length) {
+          // solo adulti
+          const { error } = await sb.from("ride_requests").insert({ event_id: f.dataset.id, team_id: evTeam(f.dataset.id), athlete_name: ("Adulti di " + (S.profile.display_name || "un genitore")).slice(0, 60), no_athlete: true, adults: adQ, depart_from: v("from"), direction: v("direction") || "ar", requested_by: S.user.id });
+          if (error) { if (/duplicate|unique/i.test(error.message || "")) { toast("Hai già chiesto un passaggio per adulti su questa trasferta"); if (btn) btn.disabled = false; return; } throw error; }
+          toast("Richiesta pubblicata"); S.ui.req = null; await reloadTeam(); return;
+        }
+        for (const [i, a] of who.entries()) {
+          const row = { event_id: f.dataset.id, team_id: evTeam(f.dataset.id), athlete_name: a, depart_from: v("from"), direction: v("direction") || "ar", requested_by: S.user.id };
+          if (adQ && i === 0) row.adults = adQ; // gli adulti viaggiano con il primo atleta
+          const { error } = await sb.from("ride_requests").insert(row);
           if (error) { if (/duplicate|unique/i.test(error.message || "")) { toast("Per " + a + " c'è già una richiesta"); if (btn) btn.disabled = false; return; } throw error; }
         }
         toast(who.length > 1 ? "Richieste pubblicate" : "Richiesta pubblicata");
@@ -2382,14 +2419,16 @@
       if (kind === "book") {
         S.ui.wa = null;
         const who = fd.getAll("athlete").map((x) => String(x).trim()).filter(Boolean);
-        if (!who.length) { toast("Scegli chi sale"); if (btn) btn.disabled = false; return; }
+        const adB = Math.max(0, Math.min(8, Number(v("adults")) || 0));
+        if (!who.length && !adB) { toast("Scegli chi sale, o indica quanti adulti"); if (btn) btn.disabled = false; return; }
+        if (!who.length) who.push(""); // solo adulti
         const done = [];
-        try { for (const a of who) { const { error } = await sb.rpc("book_seat", { p_ride: f.dataset.id, p_athlete: a, p_pickup: v("pickup") }); if (error) throw error; done.push(a); } }
+        try { for (const a of who) { const args = { p_ride: f.dataset.id, p_athlete: a, p_pickup: v("pickup") }; if (adB && !done.length) args.p_adults = adB; const { error } = await sb.rpc("book_seat", args); if (error) throw error; done.push(a); } }
         catch (err) { if (!done.length) throw err; toast(errMsg(err)); }
         if (done.length === who.length) toast(done.length > 1 ? "Posti confermati" : "Posto confermato");
         const r = S.rides.find((x) => x.id === f.dataset.id), e = r && S.events.find((x) => x.id === r.event_id);
         const names = done.join(" e ");
-        if (r && e && r.kind === "parent" && r.created_by !== S.user.id) { const L = tripLabel(e); S.ui.wa = [{ to: firstName(r.driver_name), phone: driverPhone(r), text: `Ciao ${firstName(r.driver_name)}, ho prenotato ${done.length > 1 ? done.length + " posti per" : "un posto per"} ${names} nella tua auto per ${L.trip} (${L.d}).${v("pickup") ? " Sale" + (done.length > 1 ? "no" : "") + " a " + v("pickup") + "." : ""} Grazie!` }]; }
+        if (r && e && r.kind === "parent" && r.created_by !== S.user.id) { const L = tripLabel(e); S.ui.wa = [{ to: firstName(r.driver_name), phone: driverPhone(r), text: `Ciao ${firstName(r.driver_name)}, ho prenotato ${done.filter(Boolean).length + adB > 1 ? (done.filter(Boolean).length + adB) + " posti per" : "un posto per"} ${done.filter(Boolean).length ? done.filter(Boolean).join(" e ") + (adB ? ` e ${adB} ${adB === 1 ? "adulto" : "adulti"}` : "") : `${adB} ${adB === 1 ? "adulto" : "adulti"}`} nella tua auto per ${L.trip} (${L.d}).${v("pickup") ? " Sale" + (done.length > 1 ? "no" : "") + " a " + v("pickup") + "." : ""} Grazie!` }]; }
       }
       if (kind === "sponsor") {
         const scope = f.dataset.scope, file = fd.get("logo");
