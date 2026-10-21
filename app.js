@@ -133,7 +133,12 @@
     S.session = data.session;
     sb.auth.onAuthStateChange((_ev, session) => {
       const was = !!S.session; S.session = session;
-      if (!!session !== was) { S.profile = null; route(); }
+      if (!!session !== was) {
+        S.profile = null;
+        // appena entrati: si parte dalle Trasferte, tranne che per un link d'invito
+        if (session && !/^#\/(join|genitore)\/|^#\/new$/.test(location.hash) && !/^#\/(join|genitore)\/|^#\/new$/.test(store("it-next") || "")) { store("it-next", null); if ((location.hash || "#/") !== "#/") { history.replaceState(null, "", location.pathname + "#/"); } }
+        route();
+      }
     });
     window.addEventListener("hashchange", route);
     route();
@@ -772,7 +777,8 @@
     const hash = location.hash || "#/";
     const p0 = hash.slice(2).split("/")[0];
     if (p0 === "termini" || p0 === "privacy") return viewLegal(p0);
-    if (!S.session) return viewLogin(hash !== "#/" ? hash : null);
+    // senza accesso si ricorda solo un link d'invito; qualsiasi altra pagina riparte dalle Trasferte
+    if (!S.session) return viewLogin(/^#\/(join|genitore)\/|^#\/new$/.test(hash) ? hash : null);
     try { await ensureProfile(); } catch (e) {
       if (!S.session) { toast("Accedi di nuovo"); return viewLogin(); }
       toast(errMsg(e));
