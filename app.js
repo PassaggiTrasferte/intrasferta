@@ -772,7 +772,7 @@
 
   // ---------- router ----------
   async function route() {
-    document.body.classList.remove("dark", "has-bnav"); // sfondo scuro solo per le pagine di benvenuto e accesso
+    document.body.classList.remove("dark", "has-bnav", "sheet-open"); // sfondo scuro solo per le pagine di benvenuto e accesso
     const hash = location.hash || "#/";
     const p0 = hash.slice(2).split("/")[0];
     if (p0 === "termini" || p0 === "privacy") return viewLegal(p0);
@@ -1073,7 +1073,7 @@
         : `<div class="muted">Resti collegato su questo dispositivo finché non esci.</div><div><button class="btn-link danger" data-act="logout-ask">Esci dall'account</button></div>`}
       </div>
     </div>` + footer() + (navTeam ? bottomNav(navTeam, "profilo") : "");
-    if (navTeam) document.body.classList.add("has-bnav");
+    document.body.classList.remove("sheet-open"); if (navTeam) document.body.classList.add("has-bnav");
   }
 
   function privacyCard() {
@@ -1170,7 +1170,7 @@
       ${S.ui.spEdit ? sponsorForm(S.ui.spEdit === "new" ? null : (S.platSponsors || []).find((x) => x.id === S.ui.spEdit), "platform") : ""}
       <button class="btn-ghost" data-act="admin-refresh">Aggiorna</button>
     </div>` + footer() + (S.team ? bottomNav(S.team.id, "admin") : "");
-    if (S.team) document.body.classList.add("has-bnav");
+    document.body.classList.remove("sheet-open"); if (S.team) document.body.classList.add("has-bnav");
   }
   function adminCSV() {
     const L = S.adminData.team_list || [];
@@ -1265,7 +1265,7 @@
     ids.forEach((tid) => ["rides", "bookings", "events", "ride_requests"].forEach((tb) => { ch = ch.on("postgres_changes", { event: "*", schema: "public", table: tb, filter: "team_id=eq." + tid }, refresh); }));
     S.channel = ch.subscribe();
   }
-  const anyFormOpen = () => !!(S.ui.offer || S.ui.book || S.ui.club || S.ui.editEvent || S.ui.newEvent || S.ui.req);
+  const anyFormOpen = () => !!(S.ui.offer || S.ui.book || S.ui.club || S.ui.editEvent || S.ui.newEvent || S.ui.req || S.ui.takeNew);
   const member = (uid) => S.members.find((m) => m.user_id === uid) || (S.allMembers || []).find((m) => m.user_id === uid) || {};
   const canAddEvents = () => isAdmin();
   const canEditEvent = () => isAdmin();
@@ -1373,13 +1373,44 @@
     const body = sub + (currentTab === "trasferte" || currentTab === "risparmio" || currentTab === "gestisci" ? fn() : teamSwitch() + withTeam(t.id, fn));
     const y = window.scrollY;
     const curSp = document.querySelector(".sp-banner")?.dataset.cur;
-    $app.innerHTML = head + `<div class="wrap">${waPanel()}${body}</div>` + footer() + bottomNav(t.id);
+    const sheet = actionSheet();
+    $app.innerHTML = head + `<div class="wrap">${waPanel()}${body}</div>` + footer() + bottomNav(t.id) + sheet;
     document.body.classList.add("has-bnav");
+    document.body.classList.toggle("sheet-open", !!sheet);
+    if (sheet) { const sf = document.querySelector(".sheet [data-form]"); if (sf) updSeatsSum(sf); }
     window.scrollTo(0, y);
     if (currentTab === "invita") drawQR();
     if (curSp != null) { const nb = document.querySelector(".sp-banner"); if (nb) nb.dataset.cur = curSp; }
     countSponsorViews();
     if (currentTab === "sponsor" && !S.teamSponsorsLoaded) loadTeamSponsors();
+  }
+
+  // ----- pannello dal basso per offrire, chiedere, prenotare, «lo porto io», mezzo della società -----
+  function actionSheet() {
+    const u = S.ui, ev = (id) => S.events.find((x) => x.id === id);
+    let e, icon, title, sub = "", body;
+    if (u.offer && (e = ev(u.offer))) { icon = "🚗"; title = "Offro un passaggio"; body = () => offerForm(e); }
+    else if (u.req && (e = ev(u.req))) { icon = "🙋"; title = "Cerco un passaggio"; body = () => reqForm(e); }
+    else if (u.club && (e = ev(u.club))) { icon = "🚐"; title = "Mezzo della società"; body = () => clubForm(e); }
+    else if (u.book) {
+      const r = S.rides.find((x) => x.id === u.book); if (!r || !(e = ev(r.event_id))) return "";
+      const veh = r.vehicle_id ? S.vehicles.find((v) => v.id === r.vehicle_id) : null;
+      icon = "🎟️"; title = r.assignment === "convocation" ? "Assegna un posto" : "Prenota un posto";
+      sub = r.kind === "club" ? (veh ? veh.name : "Mezzo della società") : "Auto di " + (r.driver_name || "un genitore");
+      body = () => bookForm(r);
+    } else if (u.takeNew) {
+      const q = S.requests.find((x) => x.id === u.takeNew); if (!q || !(e = ev(q.event_id))) return "";
+      icon = "🤝"; title = "Lo porto io"; body = () => takeNewForm(q, e);
+    } else return "";
+    const p = dateParts(e.starts_at);
+    return `<div class="sheet-ov" data-act="cancel" aria-hidden="true"></div>
+      <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-t">
+        <div class="sheet-grab" aria-hidden="true"></div>
+        <header class="sheet-head"><span class="sheet-ic" aria-hidden="true">${icon}</span>
+          <div class="sheet-tt"><b id="sheet-t">${title}</b><small>${esc(e.title)} · ${p.dow} ${p.day} ${p.mon} · ${p.time}</small>${sub ? `<small>${esc(sub)}</small>` : ""}</div>
+          <button type="button" class="sheet-x" data-act="cancel" aria-label="Chiudi">✕</button></header>
+        <div class="sheet-body">${withTeam(e.team_id, body)}</div>
+      </section>`;
   }
 
   // ----- avviso WhatsApp dopo un'azione -----
@@ -1677,13 +1708,10 @@
           <div class="row">${chips}${reqs.length ? `<span class="chip warn">${reqs.length === 1 ? "1 cerca un passaggio" : reqs.length + " cercano un passaggio"}</span>` : ""}</div>
         </div>
         ${!isPast ? `<div class="row noprint">
-          ${S.ui.offer === e.id ? "" : `<button class="btn-ghost" data-act="offer" data-id="${e.id}">🚗 Offro un passaggio</button>`}
-          ${S.ui.req === e.id ? "" : `<button class="btn-ghost" data-act="req" data-id="${e.id}">🙋 Cerco un passaggio</button>`}
-          ${admin && S.ui.club !== e.id ? `<button class="btn-ghost" data-act="club" data-id="${e.id}">+ Mezzo della società</button>` : ""}
+          <button class="btn-ghost" data-act="offer" data-id="${e.id}">🚗 Offro un passaggio</button>
+          <button class="btn-ghost" data-act="req" data-id="${e.id}">🙋 Cerco un passaggio</button>
+          ${admin ? `<button class="btn-ghost" data-act="club" data-id="${e.id}">+ Mezzo della società</button>` : ""}
         </div>` : ""}
-        ${S.ui.offer === e.id ? offerForm(e) : ""}
-        ${S.ui.req === e.id ? reqForm(e) : ""}
-        ${S.ui.club === e.id ? clubForm(e) : ""}
         ${rides.length ? `<div class="offers"><div class="reqs-head"><span aria-hidden="true">🚗</span><b>Offrono un passaggio</b><span class="offers-n">${rides.length}</span></div>${(rides.length > 3 && !(S.ui.allRides || {})[e.id] ? rides.slice(0, 3) : rides).map((r) => rideBlock(r, e, isPast)).join("")}${rides.length > 3 ? `<button class="btn-link" data-act="all-rides" data-id="${e.id}">${(S.ui.allRides || {})[e.id] ? "Mostra meno" : `Mostra altri ${rides.length - 3} mezzi`}</button>` : ""}</div>` : ""}
         ${!isPast && reqs.length ? reqBox(e, reqs) : ""}
         ${canEditEvent(e) ? `<div class="row noprint">${confirming
@@ -1716,9 +1744,8 @@
       <div class="meta">${r.depart_time ? `🕔 <b>${esc(r.depart_time)}</b> · ` : ""}${esc(r.depart_from || "—")} · ${r.return_trip ? "andata e ritorno" : "solo andata"}${details.length ? ` · <button class="btn-link" data-act="ride-more" data-id="${r.id}">${open ? "meno" : "dettagli"}</button>` : ""}</div>
       ${open ? `<div class="meta">${details.join(" · ")}</div>` : ""}
       ${rs.length ? `<ul class="pax">${rs.map((b) => `<li><span>${paxName(b, b.booked_by)}${adultsTag(Number(b.adults) || 0, b.no_athlete)}${b.pickup ? ` <small>· sale a ${esc(b.pickup)}</small>` : ""}</span>${!isPast && (b.booked_by === S.user.id || mine || admin) ? `<button class="btn-link danger" data-act="unbook" data-id="${b.id}">Libera</button>` : ""}</li>`).join("")}</ul>` : ""}
-      ${S.ui.book === r.id ? bookForm(r) : ""}
       ${!isPast ? `<div class="row noprint">
-        ${canBook && S.ui.book !== r.id ? `<button class="btn-primary btn-sm" data-act="book" data-id="${r.id}">${r.assignment === "convocation" ? "Assegna un posto" : "Prenota"}</button>` : ""}
+        ${canBook ? `<button class="btn-primary btn-sm" data-act="book" data-id="${r.id}">${r.assignment === "convocation" ? "Assegna un posto" : "Prenota"}</button>` : ""}
         ${mine || admin ? (confirming
           ? `<span class="confirm">Ritirare questo mezzo? Le prenotazioni verranno cancellate. <button class="btn-link danger" data-act="del-ride" data-id="${r.id}">Sì</button><button class="btn-link" data-act="cancel">No</button></span>`
           : `<button class="btn-link" data-act="ask-del-ride" data-id="${r.id}">${r.kind === "club" ? "Togli mezzo" : "Ritira la mia auto"}</button>`) : ""}
@@ -1766,7 +1793,7 @@
         const qn = (q.no_athlete ? 0 : 1) + qa;
         return `<li class="req"><div class="req-main"><b>${paxName(q, q.requested_by)}</b>${adultsTag(qa, q.no_athlete)}
             <div class="req-meta">${qn > 1 ? `<span class="tag">${qn} posti</span>` : ""}${dir ? `<span class="tag">${esc(dir.charAt(0).toUpperCase() + dir.slice(1))}</span>` : ""}${q.depart_from ? `<span class="tag">da ${esc(q.depart_from)}</span>` : ""}<span>chiesto da ${mineQ ? "te" : esc(firstName(member(q.requested_by).name))}</span></div></div>
-          <div class="req-act">${!mineQ && S.ui.takeNew !== q.id ? `<button class="btn-ok btn-sm" data-act="take" data-id="${q.id}">Lo porto io</button>` : ""}${mineQ || isAdmin() ? `<button class="btn-link danger" data-act="del-req" data-id="${q.id}">Ritira</button>` : ""}</div>${S.ui.takeNew === q.id ? takeNewForm(q, e) : ""}</li>`;
+          <div class="req-act">${!mineQ ? `<button class="btn-ok btn-sm" data-act="take" data-id="${q.id}">Lo porto io</button>` : ""}${mineQ || isAdmin() ? `<button class="btn-link danger" data-act="del-req" data-id="${q.id}">Ritira</button>` : ""}</div></li>`;
       }).join("")}</ul>${reqs.length > 3 ? `<button class="btn-link" data-act="all-reqs" data-id="${e.id}">${(S.ui.allReqs || {})[e.id] ? "Mostra meno" : `Mostra altre ${reqs.length - 3} richieste`}</button>` : ""}</div>`;
   }
 
@@ -2128,7 +2155,7 @@
       "edit-event": () => { closeForms(); S.ui.editEvent = id; renderTeam(); },
       "offer": () => { closeForms(); S.ui.offer = id; renderTeam(); },
       "club": () => { closeForms(); S.ui.club = id; renderTeam(); },
-      "book": () => { closeForms(); S.ui.book = id; renderTeam(); updSeatsSum(document.querySelector('[data-form="book"]')); },
+      "book": () => { closeForms(); S.ui.book = id; renderTeam(); },
       "req": () => { closeForms(); S.ui.req = id; renderTeam(); },
       "wa-close": () => { S.ui.wa = null; renderTeam(); },
       "toggle-past": () => { S.showPast = !S.showPast; renderTeam(); },
@@ -2195,7 +2222,7 @@
       if (act === "take") {
         const q = S.requests.find((x) => x.id === id), e = q && S.events.find((x) => x.id === q.event_id);
         const own = q && S.rides.some((r) => r.event_id === q.event_id && r.kind === "parent" && r.created_by === S.user.id);
-        if (!own) { closeForms(); S.ui.takeNew = id; renderTeam(); document.querySelector('[data-form="take-new"]')?.scrollIntoView({ block: "center", behavior: "smooth" }); return; }
+        if (!own) { closeForms(); S.ui.takeNew = id; renderTeam(); return; }
         const { data, error } = await sb.rpc("take_request", { p_request: id }); if (error) throw error; toast("Atleta aggiunto alla tua auto");
         const r = data && S.rides.find((x) => x.id === data.ride_id);
         if (q && e) { const L = tripLabel(e), m = member(q.requested_by); S.ui.wa = [{ to: firstName(m.name), phone: m.phone, text: `Ciao ${firstName(m.name)}, porto io ${q.athlete_name} a ${L.trip} (${L.d}). Parto da ${r ? r.depart_from || "—" : "—"}${r && r.depart_time ? " alle " + r.depart_time : ""}.` }]; }
@@ -2250,6 +2277,7 @@
     catch (e) { prompt("Copia il testo:", text); }
   }
 
+  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && document.body.classList.contains("sheet-open")) { closeForms(); renderTeam(); } });
   document.addEventListener("submit", async (ev) => {
     const f = ev.target; ev.preventDefault();
     const kind = f.dataset.form; if (!kind) return;

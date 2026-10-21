@@ -136,7 +136,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .hero h1 b{color:var(--brand)}
 .narrow{max-width:520px}
 
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;font-weight:600;max-width:calc(100% - 32px);z-index:10}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;font-weight:600;max-width:calc(100% - 32px);z-index:95}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 footer.foot{text-align:center;color:var(--muted);font-size:.82rem;padding:8px 16px 24px}
 
@@ -507,3 +507,24 @@ body.has-bnav{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 /* «Lo porto io» con auto da pubblicare: il modulo occupa tutta la larghezza della richiesta */
 .req{flex-wrap:wrap}
 .req .take-new{flex:1 0 100%;margin-top:10px;padding-top:12px;border-top:1px solid var(--line)}
+/* pannello dal basso: offrire, chiedere, prenotare, «lo porto io», mezzo della società */
+body.sheet-open{overflow:hidden}
+.sheet-ov{position:fixed;inset:0;z-index:60;background:rgba(11,16,24,.55);animation:sheetFade .2s ease-out}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:61;margin:0 auto;max-width:640px;max-height:min(88vh,88dvh);display:flex;flex-direction:column;background:var(--surface);color:var(--ink);border-radius:20px 20px 0 0;box-shadow:0 -10px 40px rgba(11,16,24,.28);animation:sheetUp .26s cubic-bezier(.2,.8,.2,1)}
+.sheet-grab{width:44px;height:5px;border-radius:99px;background:var(--line);margin:8px auto 2px;flex:none}
+.sheet-head{display:flex;align-items:center;gap:12px;padding:8px 16px 12px;border-bottom:1px solid var(--line);flex:none}
+.sheet-ic{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:1.35rem;background:var(--ok-soft,#E6F6EC);flex:none}
+.sheet-tt{display:grid;gap:1px;min-width:0;flex:1}
+.sheet-tt b{font-size:1.08rem;line-height:1.2}
+.sheet-tt small{color:var(--muted);font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sheet-x{flex:none;width:36px;height:36px;min-height:0;padding:0;border-radius:50%;border:0;background:var(--bg);color:var(--ink);font-size:1rem;cursor:pointer}
+.sheet-body{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
+.sheet-body .form{border-top:0!important;padding-top:0!important;margin:0}
+.sheet-body .form .actions{position:sticky;bottom:calc(-16px - env(safe-area-inset-bottom));margin:4px -16px calc(-16px - env(safe-area-inset-bottom));padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:var(--surface);border-top:1px solid var(--line);flex-direction:column}
+.sheet-body .form .actions button{width:100%;min-height:48px}
+.sheet-body .form .actions .btn-ghost{border-color:transparent;background:transparent;color:var(--muted)}
+@keyframes sheetUp{from{transform:translateY(100%)}to{transform:none}}
+@keyframes sheetFade{from{opacity:0}to{opacity:1}}
+@media (min-width:700px){.sheet{bottom:50%;transform:translateY(50%);border-radius:20px;animation:sheetPop .2s ease-out}.sheet-grab{display:none}.sheet-body .form .actions{border-radius:0 0 20px 20px}}
+@keyframes sheetPop{from{opacity:0;transform:translateY(calc(50% + 16px))}to{opacity:1;transform:translateY(50%)}}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet-ov{animation:none}}
