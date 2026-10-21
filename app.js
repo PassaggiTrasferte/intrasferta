@@ -1454,13 +1454,12 @@
     const catBar = tids.length > 1 ? `<div class="pill-group cat-bar noprint" role="radiogroup" aria-label="Categoria">
         <button class="pill" role="radio" aria-checked="${!sel}" data-act="cat-filter" data-v="">Tutte</button>
         ${tids.map((tid) => `<button class="pill" role="radio" aria-checked="${sel === tid}" data-act="cat-filter" data-v="${tid}" title="${esc(teamById(tid).name)}">${esc(teamById(tid).category || teamById(tid).name)}</button>`).join("")}</div>` : "";
-    return `
+    return `${sponsorBanner()}
       ${noticeCards()}${wizardTrips()}${firstSteps()}${parentTips()}${catBar}
       ${adminTeamIds().length && wizStep() !== 2 ? `<div class="row noprint">
         ${S.ui.newEvent ? "" : `<button class="btn-primary" data-act="new-event">+ Aggiungi trasferta</button>`}
         ${adminTeamIds().some((tid) => premium(teamById(tid))) ? `<button class="btn-ghost" data-act="ai-open">Importa calendario con l'AI</button>` : ""}
       </div>` : ""}
-      ${sponsorBanner()}
       ${S.ui.newEvent ? eventForm(null, L) : ""}
       ${S.ui.ai ? aiPanel() : ""}
       ${up.length ? up.map((e) => withTeam(e.team_id, () => tripCard(e, false))).join("") : `<div class="empty"><strong>Nessuna trasferta in programma</strong>${admin ? "Aggiungi la prossima trasferta o importa il calendario." : "Quando l'amministratore aggiunge una trasferta, comparirà qui."}</div>`}
@@ -1637,8 +1636,10 @@
       <div class="full small muted">Formato consigliato 3:1, per esempio 1500×500 pixel. JPG, PNG o WEBP: la ottimizziamo noi per caricarsi veloce sul telefono, senza perdere qualità visibile.</div>
       ${sp?.logo_path ? `<div class="full small muted">Banner attuale: ${isVideo(sp) ? `<video src="${esc(logoUrl(sp.logo_path))}" muted preload="metadata" class="sp-prev"></video>` : `<img src="${esc(logoUrl(sp.logo_path))}" alt="" class="sp-prev">`} (carica un file solo per sostituirlo)</div>` : ""}
       <label>Secondi di visualizzazione<input name="seconds" type="number" min="3" max="60" step="1" value="${esc(String(sp?.seconds || 6))}"></label>
-      ${scope === "platform" ? `<div class="full stack" style="gap:8px"><div class="label">Sport in cui mostrarlo (nessuno selezionato = tutti)</div>
-        <div class="pill-group">${SPORT_ORDER.map((k) => `<label class="pill check-pill"><input type="checkbox" name="sports" value="${k}" ${sports.includes(k) ? "checked" : ""}> ${esc(SPORTS[k].label)}</label>`).join("")}</div></div>` : ""}
+      ${scope === "platform" ? `<div class="full stack sp-sport" style="gap:8px"><div class="label">In quali sport mostrarlo</div>
+        <div class="pill-group" role="radiogroup"><label class="pill check-pill"><input type="radio" name="sp_all" value="all" ${sports.length ? "" : "checked"}> 🌍 Tutti gli sport</label><label class="pill check-pill"><input type="radio" name="sp_all" value="some" ${sports.length ? "checked" : ""}> 🎯 Solo alcuni sport</label></div>
+        <div class="pill-group sp-sports" ${sports.length ? "" : "hidden"}>${SPORT_ORDER.map((k) => `<label class="pill check-pill"><input type="checkbox" name="sports" value="${k}" ${sports.includes(k) ? "checked" : ""}> ${esc(SPORTS[k].label)}</label>`).join("")}</div>
+        <div class="small muted sp-sports" ${sports.length ? "" : "hidden"}>Spunta uno o più sport: lo vedranno solo le squadre di quegli sport.</div></div>` : ""}
       <label>Dal (facoltativo)<input name="from" type="date" value="${esc(sp?.starts_on || "")}"></label>
       <label>Al (facoltativo)<input name="to" type="date" value="${esc(sp?.ends_on || "")}"></label>
       <label class="full check"><input name="active" type="checkbox" ${!sp || sp.active ? "checked" : ""}> Attivo</label>
@@ -2259,6 +2260,7 @@
 
   document.addEventListener("change", (ev) => {
     if (ev.target.name === "athlete" && ev.target.form) updSeatsSum(ev.target.form);
+    if (ev.target.name === "sp_all" && ev.target.form) ev.target.form.querySelectorAll(".sp-sports").forEach((x) => { x.hidden = ev.target.value !== "some"; });
     const sel = ev.target.closest('select[name="vehicle"]');
     if (sel) { const o = sel.selectedOptions[0]; const f = sel.form; if (o && f.elements.seats) f.elements.seats.value = o.dataset.seats; }
     const tt = ev.target.closest('select[name="target-team"]');
@@ -2517,7 +2519,11 @@
         if (link && !/^https?:\/\//i.test(link)) { toast("Il link deve iniziare con https://"); if (btn) btn.disabled = false; return; }
         const secs = Math.min(60, Math.max(3, Math.round(Number(v("seconds")) || 6)));
         const row = { name: v("name"), message: v("message"), link_url: link, starts_on: v("from") || null, ends_on: v("to") || null, active: fd.get("active") === "on", seconds: secs };
-        if (scope === "platform") { const sp = fd.getAll("sports"); row.sports = sp.length ? sp : null; }
+        if (scope === "platform") {
+          const sp = fd.get("sp_all") === "some" ? fd.getAll("sports") : [];
+          if (fd.get("sp_all") === "some" && !sp.length) { toast("Spunta almeno uno sport, oppure scegli «Tutti gli sport»"); if (btn) btn.disabled = false; return; }
+          row.sports = sp.length ? sp : null;
+        }
         if (file && file.size) {
           if (btn) { btn.classList.remove("is-busy"); btn.textContent = "Ottimizzo l'immagine…"; }
           const img = await optimizeImage(file);

@@ -537,3 +537,7 @@ body.sheet-open{overflow:hidden}
 .top .brand img:first-child{width:48px;height:48px;border-radius:11px}
 .top .brand .wordmark{height:36px}
 .top .brand{gap:10px}
+/* sponsor attaccato alla barra scura in alto, senza striscia chiara in mezzo */
+.wrap > .sp-banner:first-child{margin-top:-16px;border-top:0;border-radius:0 0 14px 14px}
+@media (max-width:792px){.wrap > .sp-banner:first-child{border-radius:0}}
+.sp-sports[hidden]{display:none!important}
