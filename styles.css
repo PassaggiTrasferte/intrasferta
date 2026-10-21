@@ -528,3 +528,12 @@ body.sheet-open{overflow:hidden}
 @media (min-width:700px){.sheet{bottom:50%;transform:translateY(50%);border-radius:20px;animation:sheetPop .2s ease-out}.sheet-grab{display:none}.sheet-body .form .actions{border-radius:0 0 20px 20px}}
 @keyframes sheetPop{from{opacity:0;transform:translateY(calc(50% + 16px))}to{opacity:1;transform:translateY(50%)}}
 @media (prefers-reduced-motion:reduce){.sheet,.sheet-ov{animation:none}}
+/* sponsor a tutta larghezza sul telefono (da bordo a bordo dello schermo) */
+@media (max-width:792px){.wrap .sp-banner{width:auto;margin-left:-16px;margin-right:-16px;border-radius:0;border-left:0;border-right:0;max-height:none}}
+/* su PC i bottoni in basso restano larghi quanto le schede */
+@media (min-width:793px){.bnav{left:50%;right:auto;width:min(728px,calc(100% - 32px));transform:translateX(-50%);border:1px solid var(--line);border-bottom:0;border-radius:16px 16px 0 0}}
+/* logo in alto più grande del titolo di pagina */
+.top .in:first-child{min-height:62px}
+.top .brand img:first-child{width:48px;height:48px;border-radius:11px}
+.top .brand .wordmark{height:36px}
+.top .brand{gap:10px}
