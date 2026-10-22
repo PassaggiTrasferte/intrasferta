@@ -328,6 +328,11 @@
 
   // ---------- consensi ----------
   const TERMS_VERSION = "1";
+  // consenso a novità e offerte via email: scelta attiva Sì/No, mai preselezionata (versione 2 = testo con offerte e rinnovi)
+  const NEWS_VERSION = "2";
+  const newsChoice = (val, dark) => `<fieldset class="full news-choice${dark ? " dark" : ""}"><legend>📬 Vuoi ricevere novità e offerte di geniGO via email?</legend>
+      <p>Nuove funzioni, apertura della stagione, piani Premium e rinnovi: solo di geniGO, al massimo 1-2 email al mese. Ti disiscrivi quando vuoi.</p>
+      <div class="news-btns"><label><input type="radio" name="news" value="yes" ${val === true ? "checked" : ""}><span>Sì, tienimi aggiornato</span></label><label><input type="radio" name="news" value="no" ${val === false ? "checked" : ""}><span>No, grazie</span></label></div></fieldset>`;
   const season = () => { const d = new Date(), y = d.getFullYear(); return d.getMonth() >= 8 ? `${y}/${String(y + 1).slice(2)}` : `${y - 1}/${String(y).slice(2)}`; };
   async function loadConsents() {
     S.consents = {}; S.consentLog = [];
@@ -338,7 +343,8 @@
     } catch (e) { /* tabella non ancora creata */ S.consents = null; }
   }
   const hasConsent = (k) => !!(S.consents && S.consents[k] && S.consents[k].granted);
-  const consentsOk = () => S.consents === null || (hasConsent("terms") && S.consents.terms.version === TERMS_VERSION && hasConsent("parent"));
+  const newsAsked = () => !!(S.consents && S.consents.news && S.consents.news.version === NEWS_VERSION);
+  const consentsOk = () => S.consents === null || (hasConsent("terms") && S.consents.terms.version === TERMS_VERSION && hasConsent("parent") && newsAsked());
   async function saveConsent(kind, granted, version) {
     const row = { user_id: S.user.id, kind, version: version || (kind === "terms" ? TERMS_VERSION : ""), granted: !!granted };
     const { error } = await sb.from("consents").insert(row); if (error) throw error;
@@ -351,21 +357,22 @@
   // finestra dei consensi (primo accesso e Termini aggiornati)
   function viewConsents() {
     const updated = S.consents && S.consents.terms && S.consents.terms.version !== TERMS_VERSION;
+    const onlyNews = !updated && hasConsent("terms") && hasConsent("parent") && !newsAsked();
     const open = S.ui.legalOpen;
     $app.innerHTML = `<div class="hero"><div class="in"><h1 class="hero-logo"><img src="icon.svg" alt="" width="64" height="64"><img src="logo.svg?v=gg1" alt="geniGO" class="wordmark"></h1></div></div>
       <div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="cons-title">
         <img src="icon.svg" alt="" width="56" height="56" class="modal-icon">
-        <h2 id="cons-title">${updated ? "Abbiamo aggiornato i Termini" : "Prima di iniziare, due cose importanti"}</h2>
-        ${open ? `<div class="legal-box">${LEGAL[open].html}</div><button class="btn-ghost" data-act="legal-close">← Torna al riepilogo</button>` : `
+        <h2 id="cons-title">${updated ? "Abbiamo aggiornato i Termini" : onlyNews ? "Restiamo in contatto?" : "Prima di iniziare, due cose importanti"}</h2>
+        ${open ? `<div class="legal-box">${LEGAL[open].html}</div><button class="btn-ghost" data-act="legal-close">← Torna al riepilogo</button>` : onlyNews ? `<p class="muted" style="margin:0;text-align:center">Una sola domanda, poi non te la chiediamo più.</p>` : `
         <div class="cons-item"><span aria-hidden="true">🤝</span><div><b>geniGO mette in contatto le famiglie, non organizza i viaggi.</b> I passaggi sono accordi gratuiti tra genitori: chi guida è responsabile del proprio viaggio.</div></div>
         <div class="cons-item"><span aria-hidden="true">🚗</span><div><b>Chi offre un passaggio deve poter trasportare gli atleti in sicurezza:</b> patente valida, auto assicurata e revisionata, rispetto del codice della strada, cinture o seggiolini per tutti, non più passeggeri dei posti omologati.</div></div>
         <div class="cons-item"><span aria-hidden="true">🔒</span><div><b>I tuoi dati restano qui.</b> Nome, cellulare (se lo inserisci) e alias dei tuoi atleti li vedono solo le tue squadre. Niente pubblicità profilata, nessun dato ceduto a terzi, nessuna posizione in tempo reale.</div></div>`}
         <form class="form" data-form="consents">
-          <label class="full check"><input type="checkbox" name="terms" required ${hasConsent("terms") && !updated ? "checked" : ""}> <span>Ho letto e accetto i <button type="button" class="btn-link" data-act="legal-open" data-v="termini">Termini d'uso</button> e l'<button type="button" class="btn-link" data-act="legal-open" data-v="privacy">Informativa privacy</button> <small class="muted">(obbligatorio)</small></span></label>
-          <label class="full check"><input type="checkbox" name="parent" required ${hasConsent("parent") ? "checked" : ""}> <span>Sono il genitore, o chi ne fa le veci, degli atleti che inserirò <small class="muted">(obbligatorio)</small></span></label>
-          <div class="full label" style="margin-top:4px">Facoltativi</div>
-          <label class="full check switch"><input type="checkbox" name="news" ${hasConsent("news") ? "checked" : ""}> <span>Ricevere via email novità e consigli d'uso di geniGO</span></label>
-          <label class="full check switch"><input type="checkbox" name="stats" ${hasConsent("stats") ? "checked" : ""}> <span>Statistiche d'uso anonime per migliorare l'app</span></label>
+          ${onlyNews ? `<input type="hidden" name="terms" value="on"><input type="hidden" name="parent" value="on">` : `<label class="full check"><input type="checkbox" name="terms" required ${hasConsent("terms") && !updated ? "checked" : ""}> <span>Ho letto e accetto i <button type="button" class="btn-link" data-act="legal-open" data-v="termini">Termini d'uso</button> e l'<button type="button" class="btn-link" data-act="legal-open" data-v="privacy">Informativa privacy</button> <small class="muted">(obbligatorio)</small></span></label>
+          <label class="full check"><input type="checkbox" name="parent" required ${hasConsent("parent") ? "checked" : ""}> <span>Sono il genitore, o chi ne fa le veci, degli atleti che inserirò <small class="muted">(obbligatorio)</small></span></label>`}
+          ${newsChoice(newsAsked() ? hasConsent("news") : undefined)}
+          ${onlyNews ? (hasConsent("stats") ? `<input type="hidden" name="stats" value="on">` : "") : `<div class="full label" style="margin-top:4px">Facoltativo</div>
+          <label class="full check switch"><input type="checkbox" name="stats" ${hasConsent("stats") ? "checked" : ""}> <span>Statistiche d'uso anonime per migliorare l'app</span></label>`}
           <div class="actions"><button class="btn-primary btn-block" type="submit">Continua</button></div>
         </form>
         <p class="small muted" style="margin:0">Puoi cambiare i consensi facoltativi quando vuoi da Profilo › Privacy e consensi.</p>
@@ -419,7 +426,8 @@
       <ul><li>Far funzionare il servizio che hai richiesto: account, squadre e passaggi (esecuzione del servizio).</li>
         <li>Conservare la prova dei consensi e delle dichiarazioni (obbligo e legittimo interesse a tutela del servizio).</li>
         <li>Capire quali canali di comunicazione funzionano, tramite il canale di provenienza (legittimo interesse).</li>
-        <li>Inviarti novità via email e raccogliere statistiche d'uso, solo con il tuo consenso, revocabile in ogni momento.</li></ul>
+        <li>Inviarti via email novità e offerte di geniGO (nuove funzioni, apertura della stagione, piani Premium e rinnovi), solo se hai risposto Sì (consenso). Riguardano solo geniGO, mai prodotti di altri. Puoi revocare il consenso in ogni momento da Profilo › Privacy e consensi o con il link presente in ogni email.</li>
+        <li>Raccogliere statistiche d'uso anonime, solo con il tuo consenso, revocabile in ogni momento.</li></ul>
       <h3>Chi vede i tuoi dati</h3>
       <p>Il tuo nome, il cellulare (se lo inserisci) e l'alias dei tuoi atleti sono visibili solo ai membri delle tue squadre. L'email serve solo per l'accesso e non la vede nessun altro genitore. <b>Non vendiamo né cediamo dati a terzi e non facciamo pubblicità profilata.</b> Gli sponsor mostrati nell'app non ricevono dati personali: conteggiamo solo visualizzazioni e clic in forma aggregata.</p>
       <h3>Fornitori tecnici</h3>
@@ -574,7 +582,7 @@
         <p class="onb-note" style="margin-top:-4px">Ti mandiamo un codice a questa email per confermarla: niente password da ricordare.</p>
         <label class="onb-check"><input type="checkbox" name="terms" required ${a.terms ? "checked" : ""}><span>Accetto i <a href="#/termini" target="_blank">Termini d'uso</a> e l'<a href="#/privacy" target="_blank">Informativa privacy</a></span></label>
         <label class="onb-check"><input type="checkbox" name="parent" required ${a.parent ? "checked" : ""}><span>Sono il genitore, o chi ne fa le veci, degli atleti che inserisco</span></label>
-        <label class="onb-switch"><input type="checkbox" name="news" ${a.news ? "checked" : ""}><span>Novità e consigli d'uso via email</span></label>
+        ${newsChoice(a.news, true)}
         <label class="onb-switch"><input type="checkbox" name="stats" ${a.stats ? "checked" : ""}><span>Statistiche d'uso anonime</span></label>
         <div class="onb-foot"><button class="onb-btn" type="submit">Avanti</button>
           <p class="onb-small">Hai già un account? <button type="button" class="btn-link" data-act="landing-login">Accedi</button></p></div>
@@ -613,7 +621,7 @@
     if (a && S.user && String(a.email || "").toLowerCase() === String(S.user.email || "").toLowerCase()) {
       const upd = { first_name: a.first, last_name: a.last, display_name: fullName(a.first, a.last) };
       try { const { error } = await sb.from("profiles").update(upd).eq("id", S.user.id); if (!error) Object.assign(S.profile, upd); } catch (e) { /* lo chiederà la schermata del nome */ }
-      try { if (S.consents) { await saveConsent("terms", true); await saveConsent("parent", true); await saveConsent("news", !!a.news); await saveConsent("stats", !!a.stats); } } catch (e) { /* li chiederà la finestra dei consensi */ }
+      try { if (S.consents) { await saveConsent("terms", true); await saveConsent("parent", true); if (a.news === true || a.news === false) await saveConsent("news", a.news, NEWS_VERSION); await saveConsent("stats", !!a.stats); } } catch (e) { /* li chiederà la finestra dei consensi */ }
     }
     if (a) pendSet("it-acct", null);
   }
@@ -1129,7 +1137,7 @@
       <div class="small">✓ Termini d'uso e Informativa privacy · versione ${esc((c.terms && c.terms.version) || "—")} · accettati il ${when("terms")}</div>
       <div class="small">✓ Dichiarazione di genitore o tutore · ${when("parent")}</div>
       <div class="small">${drv && drv.granted ? `✓ Dichiarazione del conducente, stagione ${esc(season())} · ${new Date(drv.created_at).toLocaleDateString("it-IT")}` : `Dichiarazione del conducente: ti verrà chiesta la prima volta che offri un passaggio in questa stagione`}</div>
-      <label class="check switch"><input type="checkbox" data-act="consent-toggle" data-k="news" ${hasConsent("news") ? "checked" : ""}> <span>Ricevere via email novità e consigli d'uso</span></label>
+      <label class="check switch"><input type="checkbox" data-act="consent-toggle" data-k="news" ${hasConsent("news") && newsAsked() ? "checked" : ""}> <span>Novità e offerte di geniGO via email <small class="muted">(nuove funzioni, apertura stagione, Premium e rinnovi)</small></span></label>
       <label class="check switch"><input type="checkbox" data-act="consent-toggle" data-k="stats" ${hasConsent("stats") ? "checked" : ""}> <span>Statistiche d'uso anonime</span></label>
       <div class="small" style="background:var(--accent-soft);border-radius:10px;padding:10px 12px"><b>Cancellazione automatica a fine stagione</b><br>Dopo il 31 agosto cancelliamo alias degli atleti, richieste, nomi e telefoni nei passaggi e punti di ritrovo. Restano solo i numeri della squadra (posti, km, CO2), senza nomi.</div>
       <div class="row small"><a href="#/termini">Termini d'uso</a> · <a href="#/privacy">Informativa privacy</a></div>
@@ -2282,7 +2290,7 @@
     try {
       if (act === "logout-ask") { S.ui.confirmLogout = true; viewProfile(); return; }
       if (act === "logout-cancel") { S.ui.confirmLogout = false; viewProfile(); return; }
-      if (act === "consent-toggle") { await saveConsent(b.dataset.k, b.checked); toast(b.checked ? "Consenso attivato" : "Consenso revocato"); return; }
+      if (act === "consent-toggle") { await saveConsent(b.dataset.k, b.checked, b.dataset.k === "news" ? NEWS_VERSION : undefined); toast(b.checked ? "Consenso attivato" : "Consenso revocato"); return; }
       if (act === "del-account") {
         const { error } = await sb.rpc("delete_my_account"); if (error) throw error;
         S.ui = {}; try { localStorage.clear(); } catch (e) {}
@@ -2406,7 +2414,8 @@
         S.ui.landing = "almost"; viewLogin(); return;
       }
       if (kind === "onb-signup") {
-        const a = { first: v("first"), last: v("last"), email: v("email").toLowerCase(), terms: true, parent: true, news: fd.get("news") === "on", stats: fd.get("stats") === "on" };
+        if (!fd.get("news")) { toast("Rispondi Sì o No alla domanda sulle email di geniGO"); f.querySelector(".news-choice")?.scrollIntoView({ block: "center" }); if (btn) { btn.disabled = false; btn.classList.remove("is-busy"); } return; }
+        const a = { first: v("first"), last: v("last"), email: v("email").toLowerCase(), terms: true, parent: true, news: fd.get("news") === "yes", stats: fd.get("stats") === "on" };
         pendSet("it-acct", a); S.ui.lastEmail = a.email; S.ui.verifyEmail = null;
         // solo codice via email: se l'email ha già un account, il codice serve per entrare
         const { error } = await sb.auth.signInWithOtp({ email: a.email, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: true, data: { first_name: a.first, last_name: a.last } } });
@@ -2504,8 +2513,10 @@
       }
       if (kind === "consents") {
         if (!fd.get("terms") || !fd.get("parent")) { toast("Per continuare servono le due spunte obbligatorie"); if (btn) btn.disabled = false; return; }
+        if (!fd.get("news")) { toast("Rispondi Sì o No alla domanda sulle email di geniGO"); f.querySelector(".news-choice")?.scrollIntoView({ block: "center" }); if (btn) { btn.disabled = false; btn.classList.remove("is-busy"); } return; }
         await saveConsent("terms", true); await saveConsent("parent", true);
-        for (const k of ["news", "stats"]) { const want = fd.get(k) === "on"; if (want !== hasConsent(k) || !(S.consents && S.consents[k])) await saveConsent(k, want); }
+        await saveConsent("news", fd.get("news") === "yes", NEWS_VERSION);
+        { const want = fd.get("stats") === "on"; if (want !== hasConsent("stats") || !(S.consents && S.consents.stats)) await saveConsent("stats", want); }
         S.ui.legalOpen = null; route(); return;
       }
       if (kind === "landing-code") {

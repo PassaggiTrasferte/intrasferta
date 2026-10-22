@@ -585,3 +585,22 @@ tfoot td{border-top:2px solid var(--line)}
 .pax-sum small{font-weight:600;opacity:.85}
 .pax-sum.over{background:var(--danger-soft);color:var(--danger)}
 @media (prefers-color-scheme: dark){.pax-av{background:#24304A;color:#C7D2FE}}
+
+/* consenso email: scelta attiva Sì / No, nessuna risposta preselezionata, stesso peso ai due pulsanti */
+.news-choice{border:0;margin:0;padding:0;display:grid;gap:8px;min-width:0}
+.news-choice legend{padding:0;font-weight:700;color:var(--ink);font-size:1rem;line-height:1.35;margin-bottom:4px}
+.news-choice p{margin:0;font-size:.9rem;color:var(--muted);line-height:1.4}
+.news-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.news-btns label{position:relative;display:grid!important;margin:0;cursor:pointer}
+.news-btns input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.news-btns span{display:grid;place-items:center;text-align:center;min-height:48px;padding:8px 10px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);font-weight:700;font-size:.95rem;line-height:1.2}
+.news-btns input:checked+span{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-text);box-shadow:inset 0 0 0 1px var(--accent)}
+.news-btns input:checked+span::before{content:"✓ "}
+.news-btns input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.news-choice.dark{background:#1F2A3A;border-radius:14px;padding:12px 14px}
+.news-choice.dark legend{color:var(--navy-ink)}
+.news-choice.dark p{color:var(--navy-muted)}
+.news-choice.dark .news-btns span{background:transparent;border-color:#3A4659;color:var(--navy-ink)}
+.news-choice.dark .news-btns input:checked+span{background:rgba(47,179,106,.18);border-color:var(--brand);color:#7BE495}
+.news-choice legend{float:left;width:100%}
+.news-choice legend+*{clear:both}
