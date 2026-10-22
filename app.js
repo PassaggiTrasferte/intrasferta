@@ -629,7 +629,8 @@
     const p = pendGet("it-pend"); pendSet("it-pend", null);
     if (!p || !p.kids || !p.kids.length) return false;
     const names = Object.fromEntries(p.teams.map((t) => [t.code, t.name]));
-    const entries = p.kids.filter((k) => k.first && k.last && k.codes && k.codes.length).map((k) => ({ first: k.first, last: k.last, codes: k.codes }));
+    // con gli alias basta il nome (il cognome non si chiede più): prima venivano scartati e il genitore non entrava in squadra
+    const entries = p.kids.filter((k) => k.first && k.codes && k.codes.length).map((k) => ({ first: k.first, last: k.last || "", codes: k.codes }));
     if (!entries.length) return false;
     await doJoin(entries, p.teams.map((t) => t.code), names, p.teams.length > 1);
     return true;
