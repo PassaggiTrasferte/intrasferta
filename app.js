@@ -221,8 +221,8 @@
   // La stessa regola la applica il database: qui serve solo per mostrarla prima di salvare.
   const aliasClean = (x) => { const w = String(x || "").trim().replace(/\s+/g, " ").split(" ").filter(Boolean); if (!w.length) return "";
     return [w[0], ...w.slice(1).map((p) => { const l = p.replace(/[^\p{L}]/gu, ""); return l.length >= 3 ? l[0].toUpperCase() + "." : p; })].join(" ").slice(0, 15).trim(); };
-  const ALIAS_HINT = "Un soprannome o il nome con l'iniziale, es. Jaco, Marco R., #7. Non serve il cognome.";
-  const aliasInput = (name, val, req, cls) => `<input name="${name}" maxlength="30" autocomplete="off" data-alias ${cls ? `class="${cls}"` : ""} ${req ? "required" : ""} placeholder="Es. Jaco, Marco R." value="${esc(val || "")}">`;
+  const ALIAS_HINT = "Un soprannome o il nome con l'iniziale, es. Luca, Marco R., #7. Non serve il cognome.";
+  const aliasInput = (name, val, req, cls) => `<input name="${name}" maxlength="30" autocomplete="off" data-alias ${cls ? `class="${cls}"` : ""} ${req ? "required" : ""} placeholder="Es. Luca, Marco R." value="${esc(val || "")}">`;
   const kidRow = (f, l, req, sfx) => `<div class="kid-row" style="grid-template-columns:1fr"><label>Alias dell'atleta${aliasInput("kf" + (sfx || ""), f, req)}</label><span class="small muted alias-note" hidden></span></div>`;
   const kidsBlock = (title, req) => `<div class="full kids"><div class="label">${title}</div>${kidRow("", "", req)}<div><button type="button" class="btn-link" data-act="kid-more">+ Aggiungi un altro atleta</button></div><div class="small muted">${ALIAS_HINT}</div></div>`;
   function readKids(fd, sfx) {
@@ -528,7 +528,7 @@
         ${onbBack("landing-back")}
         <h1 class="onb-h">Entra nella squadra</h1>
         <p class="onb-sub">Scrivi il codice che hai ricevuto dall'allenatore o da un altro genitore.</p>
-        <label class="onb-group onb-big"><span>Codice d'invito</span><input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="OLI-7K4M2"></label>
+        <label class="onb-group onb-big"><span>Codice d'invito</span><input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="BKT-7K4M2"></label>
         <p class="onb-note">Hai ricevuto il link su WhatsApp? Aprilo: il codice è già dentro.</p>
         <div class="onb-foot"><button class="onb-btn" type="submit">Avanti</button></div>
       </form>`,
@@ -934,7 +934,7 @@
         <a class="choice" href="#/new"><b>Registra la tua squadra</b><span>Per allenatori e dirigenti: crei la squadra e inviti i genitori</span></a>` : ""}
       <div class="stack">
         ${cards ? `<a class="btn btn-primary btn-block" href="#/new">+ Registra una nuova squadra</a>` : ""}
-        ${S.ui.codeOpen ? `<form class="card form" data-form="code-join"><label class="full">Codice della squadra<input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="Es. OLI-7K4M2"></label><div class="actions"><button class="btn-primary" type="submit">Continua</button><button class="btn-ghost" type="button" data-act="code-close">Annulla</button></div></form>`
+        ${S.ui.codeOpen ? `<form class="card form" data-form="code-join"><label class="full">Codice della squadra<input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="Es. BKT-7K4M2"></label><div class="actions"><button class="btn-primary" type="submit">Continua</button><button class="btn-ghost" type="button" data-act="code-close">Annulla</button></div></form>`
           : cards ? `<button class="btn-ghost btn-block" data-act="code-open">Ho un codice invito</button>` : ""}
       </div></div>` + footer();
   }
@@ -951,7 +951,7 @@
       <form class="card form" data-form="new-team">
         <div class="full stack" style="gap:8px"><div class="label">Sport</div>
           <div class="pill-group" role="radiogroup" aria-label="Sport">${SPORT_ORDER.map((k) => `<button type="button" class="pill" role="radio" aria-checked="${k === sp}" data-act="pick-sport" data-v="${k}">${esc(SPORTS[k].label)}</button>`).join("")}</div></div>
-        <label class="full">Nome squadra<input name="name" required minlength="2" maxlength="80" placeholder="Es. Urania Milano U17"></label>
+        <label class="full">Nome squadra<input name="name" required minlength="2" maxlength="80" placeholder="Es. Basket Città U17"></label>
         <label>Categoria<input name="category" maxlength="40" placeholder="Es. U17"></label>
         <label>Stagione<input name="season" maxlength="20" value="2026/27"></label>
         ${kidsBlock("Hai un atleta in questa squadra? (facoltativo)", false)}
@@ -1105,7 +1105,7 @@
       ${kidsCard()}
       ${securityCard()}
       <div class="card"><div class="label">Altre squadre</div>
-        ${S.ui.codeOpen ? `<form class="form" data-form="code-join"><label class="full">Codice d'invito<input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="Es. OLI-7K4M2"></label><div class="actions"><button class="btn-primary" type="submit">Continua</button><button class="btn-ghost" type="button" data-act="code-close-p">Annulla</button></div></form>`
+        ${S.ui.codeOpen ? `<form class="form" data-form="code-join"><label class="full">Codice d'invito<input name="code" required maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="Es. BKT-7K4M2"></label><div class="actions"><button class="btn-primary" type="submit">Continua</button><button class="btn-ghost" type="button" data-act="code-close-p">Annulla</button></div></form>`
           : `<div><button class="btn-ghost" data-act="code-open-p">Ho un codice d'invito</button></div>`}
         ${Object.values(S.mesById || {}).some((m) => m && m.role === "admin") || (S.me && S.me.role === "admin") ? `<div class="small muted">Sei un allenatore o un dirigente? <a href="#/new">Registra una squadra</a></div>` : ""}</div>
       <a class="btn btn-ghost btn-block" href="#/">← Torna alle trasferte</a>
@@ -1747,7 +1747,7 @@
     return `<form class="card form" data-form="event" data-id="${e ? e.id : ""}">
       <h3 class="full">${e ? "Modifica trasferta" : "Nuova trasferta"}</h3>
       ${e ? "" : teamSelect(false)}
-      <label class="full">${esc(L.event)}<input name="title" required minlength="2" maxlength="120" value="${esc(e?.title || "")}" placeholder="Es. Vanoliyoung - ${esc(S.team.name)}"></label>
+      <label class="full">${esc(L.event)}<input name="title" required minlength="2" maxlength="120" value="${esc(e?.title || "")}" placeholder="Es. Basket Rivali - ${esc(S.team.name)}"></label>
       <label>Data<input name="date" type="date" required value="${p ? p.ymd : ""}"></label>
       <label>${esc(L.time)}<input name="time" type="time" value="${p ? p.time : ""}"></label>
       <label class="full">${esc(L.place)} / indirizzo<input name="place" maxlength="200" value="${esc(e?.place || "")}" placeholder="Via, città"></label>
@@ -1897,7 +1897,7 @@
       ${names.length ? "" : kidsDone ? `<div class="full small muted">I tuoi atleti hanno già un posto o una richiesta: puoi chiedere un passaggio per uno o più adulti.</div>` : `<label>Atleta (facoltativo se viaggiano solo adulti)<input name="athlete" maxlength="60" placeholder="Alias dell'atleta"></label>`}
       ${paxCard(names, "Chi viaggia?")}
       <label>Serve per<select name="direction"><option value="ar">andata e ritorno</option><option value="andata">solo andata</option><option value="ritorno">solo ritorno</option></select></label>
-      <label class="full">Da dove parte<input name="from" maxlength="120" placeholder="Es. Buccinasco, piazza della chiesa"></label>
+      <label class="full">Da dove parte<input name="from" maxlength="120" placeholder="Es. Milano, piazza della stazione"></label>
       <div class="actions"><button class="btn-primary" type="submit">Pubblica la richiesta</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
     </form>`;
   }
@@ -1974,7 +1974,7 @@
         ${teamSelect(true)}
         <p class="full small muted" style="margin:0">Carica il calendario ufficiale (PDF o foto/screenshot) oppure incolla il testo. L'AI trova le partite: tu controlli e confermi prima di salvare.</p>
         <label class="full">File (PDF, JPG, PNG · max 5 MB)<input name="file" type="file" accept="application/pdf,image/png,image/jpeg,image/webp"></label>
-        <label class="full">…oppure incolla il testo<textarea name="text" maxlength="20000" placeholder="15/10/2026 20:30 Vanoliyoung - ${esc(S.team.name)}"></textarea></label>
+        <label class="full">…oppure incolla il testo<textarea name="text" maxlength="20000" placeholder="15/10/2026 20:30 Basket Rivali - ${esc(S.team.name)}"></textarea></label>
         <div class="actions"><button class="btn-primary" type="submit">Leggi il calendario</button><button class="btn-ghost" type="button" data-act="ai-close">Chiudi</button></div>
       </form>` : `<form class="stack" data-form="ai-confirm">
         <div class="small muted">Trovati ${prev.length} eventi. Sono selezionate le trasferte (partite fuori casa). Controlla date e orari prima di confermare.</div>
