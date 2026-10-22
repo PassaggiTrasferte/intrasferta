@@ -1,15 +1,25 @@
-geniGO · versione 20261022-2
-Cosa cambia: il nome "InTrasferta" diventa "geniGO" negli ultimi file che lo avevano ancora.
-L'app che vedono i genitori diceva già geniGO, quindi per loro cambia solo il numero di versione in fondo alla pagina.
-Niente SQL: il database non si tocca.
+geniGO · versione 20261022-4
+=============================
+Cosa cambia
+- "Cerco un passaggio" e "Prenota": la sezione "Per chi? / Adulti" diventa un
+  riquadro unico "Chi viaggia?" (o "Chi sale?"): una riga per atleta con
+  interruttore verde, una riga Adulti con − e +, e in fondo il totale
+  "Posti richiesti". Se i posti dell'auto finiscono, il + e gli altri atleti si bloccano.
+  (vedi anteprima-chi-viaggia.png)
+- Contiene anche tutto della versione 20261022-3 (interruttore sponsor, footer senza "beta").
+
+Niente SQL nuovo.
+ATTENZIONE: se NON hai ancora fatto la versione 20261022-3, lancia prima su Supabase
+il file  1-interruttore-sponsor.sql  della cartella genigo-20261022-3, poi salta i suoi
+passi GitHub e fai direttamente questi.
 
 Passi (5 minuti)
-1. Apri github.com/PassaggiTrasferte/intrasferta
-2. "Add file" › "Upload files"
-3. Trascina questi 3 file: index.html, config.js, GUIDA.md
-4. Premi "Commit changes"
-5. Dopo 1-2 minuti apri genigo.it e ricarica la pagina: in fondo deve comparire "geniGO · versione 20261022-2".
-   Se vedi ancora la versione vecchia, chiudi e riapri la pagina.
+1. Repository intrasferta › Add file › Upload files
+2. Trascina INSIEME:  app.js,  styles.css,  index.html
+   (NON questo LEGGIMI, NON l'immagine)
+3. Commit changes. Dopo 1-2 minuti apri genigo.it e ricarica:
+   in fondo deve comparire "geniGO · versione 20261022-4".
+4. Prova: apri una trasferta › "Cerco un passaggio".
 
 Se qualcosa non va
-Ricarica su GitHub le versioni precedenti di questi 3 file (sono nella cronologia del repository).
+Ricarica app.js, styles.css e index.html della versione precedente (cronologia del repository).

@@ -4,9 +4,8 @@
   "use strict";
 
   const CFG = window.INTRASFERTA_CONFIG || {};
-  // banner sponsor in cima alle trasferte: spento finché gli sponsor non danno il consenso
-  // (per riaccenderlo: SHOW_SPONSORS: true in config.js). La gestione nel pannello resta attiva.
-  const SHOW_SPONSORS = CFG.SHOW_SPONSORS === true;
+  // banner sponsor in cima alle trasferte: lo accende o lo spegne il super-admin dal pannello
+  // Amministrazione (interruttore nel database, funzione sponsors_on). Se non si riesce a leggerlo, resta spento.
   const SPORTS = window.SPORTS, SPORT_ORDER = window.SPORT_ORDER;
   const $app = document.getElementById("app");
 
@@ -867,7 +866,7 @@
   const APP_VERSION = ((document.querySelector('script[src*="app.js"]') || {}).src || "").split("v=")[1] || "";
   // riga della versione, fissa in fondo a tutte le pagine (fuori dall'area che si ridisegna)
   { const ver = document.getElementById("ver"); if (ver) ver.textContent = "geniGO" + (APP_VERSION ? " · versione " + APP_VERSION : ""); }
-  const footer = () => `<footer class="foot">geniGO beta · solo coordinamento tra famiglie, nessun pagamento · <a href="#/termini">Termini</a> · <a href="#/privacy">Privacy</a> · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
+  const footer = () => `<footer class="foot">geniGO · solo coordinamento tra famiglie, nessun pagamento · <a href="#/termini">Termini</a> · <a href="#/privacy">Privacy</a> · <a href="mailto:${esc(CFG.SUPPORT_EMAIL || "")}">segnala un problema</a></footer>`;
 
   // ---------- home: le mie squadre ----------
   async function viewHome(stay) {
@@ -1166,9 +1165,17 @@
     const { data, error } = await sb.rpc("admin_stats");
     if (error || !data) { $app.innerHTML = topBar({ title: "Amministrazione", back: "#/profilo" }) + `<div class="wrap"><div class="empty"><strong>Dati non disponibili</strong>${esc(errMsg(error))}</div></div>`; return; }
     S.adminData = data;
-    const [l, r, so] = await Promise.all([sb.from("sponsors").select("*").eq("scope", "platform").order("created_at"), sb.rpc("sponsor_report", { p_team: null }), sb.rpc("source_stats").then((x) => x, () => ({ data: null }))]);
+    const [l, r, so, on] = await Promise.all([sb.from("sponsors").select("*").eq("scope", "platform").order("created_at"), sb.rpc("sponsor_report", { p_team: null }), sb.rpc("source_stats").then((x) => x, () => ({ data: null })), sb.rpc("sponsors_on").then((x) => x, () => ({ data: null, error: true }))]);
     S.platSponsors = l.data || []; S.platSponsorStats = r.data || []; S.srcStats = so.data || null;
+    S.sponsorsOnKnown = !!(on && !on.error && typeof on.data === "boolean"); S.sponsorsOn = S.sponsorsOnKnown && on.data === true;
     renderAdmin();
+  }
+  // interruttore del banner sponsor per tutte le squadre (solo super-admin)
+  function sponsorSwitch() {
+    if (!S.sponsorsOnKnown) return `<div class="notice small danger">Interruttore del banner non disponibile: manca l'aggiornamento del database (1-interruttore-sponsor.sql). Intanto il banner resta spento.</div>`;
+    const on = S.sponsorsOn;
+    return `<div class="notice small sp-switch${on ? " ok" : ""}"><label class="check switch"><input type="checkbox" data-act="sp-switch" ${on ? "checked" : ""} aria-describedby="sp-switch-help"> <span>Banner sponsor <b>${on ? "acceso" : "spento"}</b></span></label>
+        <div id="sp-switch-help" class="muted">${on ? "Le squadre vedono il banner in cima alle Trasferte (sponsor di geniGO o, per le Premium, i propri)." : "Nessuna squadra vede il banner, nemmeno con sponsor propri. Gli sponsor restano salvati."}</div></div>`;
   }
   const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
   const ago = (iso) => { if (!iso) return "—"; const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400e3); return d <= 0 ? "oggi" : d === 1 ? "ieri" : d + " giorni fa"; };
@@ -1212,7 +1219,7 @@
         <tbody>${list.map((t) => `<tr><td><b>${esc(t.name)}</b><div class="small muted">${esc(sportName(t.sport))}${t.category ? " · " + esc(t.category) : ""} · ${esc(t.plan)}${t.pending ? " · " + t.pending + " in attesa" : ""}</div></td><td class="num">${t.members}</td><td class="num">${t.events}${t.events_upcoming ? ` <span class="muted">(${t.events_upcoming})</span>` : ""}</td><td class="num">${t.rides}</td><td class="num">${t.bookings}</td><td class="num">${t.ai_imports}</td><td>${ago(t.last_activity)}</td></tr>`).join("") || `<tr><td colspan="7" class="muted">Nessuna squadra.</td></tr>`}</tbody></table></div>
         <div class="small muted">Trasferte: totale (in programma). Squadre "attive": almeno un'auto o una prenotazione e attività negli ultimi 30 giorni.</div></div>
       <div class="card"><div class="between"><div class="label">Sponsor della piattaforma · ${(S.platSponsors || []).length}</div>${S.ui.spEdit ? "" : `<button class="btn-primary" data-act="sp-new">+ Aggiungi</button>`}</div>
-        ${SHOW_SPONSORS ? "" : `<div class="notice small">Banner sponsor <b>spento</b>: le squadre non lo vedono finché non lo riattiviamo.</div>`}<div class="small muted">Compaiono a rotazione nel banner in cima alle trasferte delle squadre degli sport scelti (fino a 10 per squadra, in ordine casuale), salvo le squadre Premium con sponsor propri attivi.</div>
+        ${sponsorSwitch()}<div class="small muted">Compaiono a rotazione nel banner in cima alle trasferte delle squadre degli sport scelti (fino a 10 per squadra, in ordine casuale), salvo le squadre Premium con sponsor propri attivi.</div>
         ${sponsorList(S.platSponsors || [], S.platSponsorStats, "platform")}</div>
       ${S.ui.spEdit ? sponsorForm(S.ui.spEdit === "new" ? null : (S.platSponsors || []).find((x) => x.id === S.ui.spEdit), "platform") : ""}
       <button class="btn-ghost" data-act="admin-refresh">Aggiorna</button>
@@ -1278,10 +1285,10 @@
     const uid = S.user.id;
     const safe = (p) => p.then((r) => r, () => ({ data: null }));
     // primo giro: la squadra aperta, le mie iscrizioni, avvisi e sponsor, tutto insieme
-    const [main, mineR, noR, unR, spR] = await Promise.all([
+    const [main, mineR, noR, unR, spR, spOnR] = await Promise.all([
       fetchTeamData(id, uid),
       safe(sb.from("team_members").select("team_id,status").eq("user_id", uid).eq("status", "active")),
-      safe(sb.rpc("my_notices")), safe(sb.rpc("my_user_notices")), safe(sb.rpc("get_sponsors", { p_team: id }))
+      safe(sb.rpc("my_notices")), safe(sb.rpc("my_user_notices")), safe(sb.rpc("get_sponsors", { p_team: id })), safe(sb.rpc("sponsors_on"))
     ]);
     if (!main) { S.team = null; S.me = null; return false; }
     S.team = main.team; S.me = main.me;
@@ -1304,7 +1311,7 @@
     S.rides = all.flatMap((d) => d.rides); S.bookings = all.flatMap((d) => d.bookings);
     S.vehicles = all.flatMap((d) => d.vehicles); S.requests = all.flatMap((d) => d.requests);
     S.athletesOk = all.every((d) => d.athletes); S.athletes = all.flatMap((d) => d.athletes || []);
-    S.notices = noR.data || []; S.userNotices = unR.data || []; S.sponsors = spR.data || [];
+    S.notices = noR.data || []; S.userNotices = unR.data || []; S.sponsorsOn = !!(spOnR && spOnR.data === true); S.sponsors = S.sponsorsOn ? spR.data || [] : [];
     return true;
   }
 
@@ -1616,7 +1623,7 @@
   const spSecs = (sp) => Math.min(60, Math.max(3, Number(sp?.seconds) || 6));
   // banner orizzontale (3:1) con immagine o video, a rotazione: solo nella pagina Trasferte
   function sponsorBanner() {
-    const L = S.sponsors || []; if (!SHOW_SPONSORS || !L.length) return "";
+    const L = S.sponsors || []; if (!S.sponsorsOn || !L.length) return "";
     const slide = (sp, i) => {
       const media = !sp.logo_path ? `<div class="sp-fallback"><b>${esc(sp.name)}</b>${sp.message ? `<span>${esc(sp.message)}</span>` : ""}</div>`
         : isVideo(sp) ? `<video src="${esc(logoUrl(sp.logo_path))}" muted playsinline loop preload="metadata" aria-label="${esc(sp.name)}"></video>`
@@ -1665,7 +1672,7 @@
     if (!seen) { try { sessionStorage.setItem(k, "1"); } catch (e) {} sb.rpc("sponsor_hit", { p_sponsor: sp.id, p_team: S.team.id, p_kind: "view" }).then(() => {}, () => {}); }
   }
   function countSponsorViews() {
-    if (!SHOW_SPONSORS || !S.team || !(S.sponsors || []).length) return;
+    if (!S.sponsorsOn || !S.team || !(S.sponsors || []).length) return;
     if (document.querySelector(".sp-banner")) startSponsorRotation();
     else { clearTimeout(spTimer); spTimer = null; }
   }
@@ -1826,9 +1833,25 @@
   // nome mostrato: le righe di soli adulti mostrano chi le ha chieste
   const paxName = (b, by) => b.no_athlete ? `👤 ${b.adults === 1 ? "1 adulto" : b.adults + " adulti"} <small>· con ${esc(firstName(member(by).name) || "un genitore")}</small>` : esc(b.athlete_name);
   const adultsTag = (n, solo) => n && !solo ? ` <span class="chip ad">+ ${n} ${n === 1 ? "adulto" : "adulti"}</span>` : "";
-  const adultsField = () => `<div class="full adults-row"><div><div class="label">Adulti / accompagnatori</div><div class="small muted">genitori, nonni, dirigenti…</div></div>
-      <div class="stepper"><button type="button" class="step-btn" data-act="adults-dec" aria-label="Meno">−</button><input name="adults" type="number" min="0" max="8" value="0" readonly aria-label="Adulti"><button type="button" class="step-btn" data-act="adults-inc" aria-label="Più">+</button></div></div>
-    <div class="full seats-sum" data-seats-sum hidden></div>`;
+  // «Chi viaggia?»: un riquadro unico, una riga per persona (atleti con interruttore, adulti con contatore)
+  // e in fondo il totale dei posti. I campi del modulo restano gli stessi: athlete (checkbox) e adults.
+  const paxIni = (n) => esc((String(n || "").trim()[0] || "?").toUpperCase());
+  const paxCard = (names, title) => {
+    const pre = names.length === 1 ? 1 : 0;
+    return `<div class="full pax"><div class="label">${title}</div><div class="pax-card">
+      ${names.map((n) => `<label class="pax-row"><span class="pax-av" aria-hidden="true">${paxIni(n)}</span><span class="pax-t"><b>${esc(n)}</b><span class="small muted">atleta</span></span><input class="pax-sw" type="checkbox" name="athlete" value="${esc(n)}" ${pre ? "checked" : ""}></label>`).join("")}
+      <div class="pax-row"><span class="pax-av ad" aria-hidden="true">👤</span><span class="pax-t"><b>Adulti</b><span class="small muted">genitori, nonni, dirigenti…</span></span>
+        <div class="stepper"><button type="button" class="step-btn" data-act="adults-dec" aria-label="Un adulto in meno">−</button><input name="adults" type="number" min="0" max="8" value="0" readonly aria-label="Adulti"><button type="button" class="step-btn plus" data-act="adults-inc" aria-label="Un adulto in più">+</button></div></div>
+      <div class="pax-sum" data-seats-sum aria-live="polite">${paxSumHtml(pre, 0, null)}</div>
+    </div></div>`;
+  };
+  const paxSumHtml = (ath, ad, free) => {
+    const tot = ath + ad;
+    if (free != null && tot > free) return `<span>Troppe persone: ${tot} su ${free} ${free === 1 ? "posto libero" : "posti liberi"}. Togli qualcuno.</span>`;
+    if (!tot) return `<span>Scegli chi viaggia</span><b>0</b>`;
+    const det = ad ? ` <small>· ${ath ? `${ath} ${ath === 1 ? "atleta" : "atleti"} + ` : ""}${ad} ${ad === 1 ? "adulto" : "adulti"}</small>` : "";
+    return `<span>Posti richiesti${det}</span><b>${tot}</b>`;
+  };
   function updSeatsSum(f) {
     if (!f) return;
     const box = f.querySelector("[data-seats-sum]"); if (!box) return;
@@ -1837,10 +1860,9 @@
     const tot = ath + ad;
     const free = f.dataset.free != null ? Number(f.dataset.free) : null;
     const over = free != null && tot > free;
-    box.hidden = !ad && !over;
     box.classList.toggle("over", over);
-    box.innerHTML = over ? `Troppe persone: ${tot} su <b>${free} ${free === 1 ? "posto libero" : "posti liberi"}</b>. Togli qualcuno.`
-      : `Servono <b>${tot} ${tot === 1 ? "posto" : "posti"}</b>: ${ath ? `${ath} ${ath === 1 ? "atleta" : "atleti"} + ` : "solo "}${ad} ${ad === 1 ? "adulto" : "adulti"}`;
+    box.innerHTML = paxSumHtml(ath, ad, free);
+    const dec = f.querySelector('[data-act="adults-dec"]'); if (dec) dec.disabled = !ad;
     // con i posti già esauriti non si possono aggiungere altre persone
     if (free != null) {
       const full = tot >= free;
@@ -1866,15 +1888,14 @@
   }
 
   // scelta dei propri figli con le spunte, invece di scrivere il nome
-  const kidPicker = (names, title) => `<div class="full"><div class="label" style="margin-bottom:6px">${title}</div><div class="pill-group">${names.map((n) => `<label class="pill check-pill"><input type="checkbox" name="athlete" value="${esc(n)}" ${names.length === 1 ? "checked" : ""}> ${esc(n)}</label>`).join("")}</div></div>`;
   function reqForm(e) {
     const booked = new Set(S.bookings.filter((b) => b.event_id === e.id).map((b) => b.athlete_name.toLowerCase()));
     const asked = new Set(S.requests.filter((q) => q.event_id === e.id).map((q) => q.athlete_name.toLowerCase()));
     const names = myAthletes().filter((n) => !booked.has(n.toLowerCase()) && !asked.has(n.toLowerCase()));
     const kidsDone = S.athletesOk && myAthletes().length && !names.length;
     return `<form class="form" data-form="req" data-id="${e.id}" style="border-top:1px solid var(--line);padding-top:12px">
-      ${names.length ? kidPicker(names, "Per chi?") : kidsDone ? `<div class="full small muted">I tuoi atleti hanno già un posto o una richiesta: puoi chiedere un passaggio per uno o più adulti.</div>` : `<label>Atleta (facoltativo se viaggiano solo adulti)<input name="athlete" maxlength="60" placeholder="Alias dell'atleta"></label>`}
-      ${adultsField()}
+      ${names.length ? "" : kidsDone ? `<div class="full small muted">I tuoi atleti hanno già un posto o una richiesta: puoi chiedere un passaggio per uno o più adulti.</div>` : `<label>Atleta (facoltativo se viaggiano solo adulti)<input name="athlete" maxlength="60" placeholder="Alias dell'atleta"></label>`}
+      ${paxCard(names, "Chi viaggia?")}
       <label>Serve per<select name="direction"><option value="ar">andata e ritorno</option><option value="andata">solo andata</option><option value="ritorno">solo ritorno</option></select></label>
       <label class="full">Da dove parte<input name="from" maxlength="120" placeholder="Es. Buccinasco, piazza della chiesa"></label>
       <div class="actions"><button class="btn-primary" type="submit">Pubblica la richiesta</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
@@ -1936,8 +1957,8 @@
     return `<form class="form" data-form="book" data-id="${r.id}" data-free="${freeN}">
       <div class="full small muted">Posti liberi su questo mezzo: <b>${freeN}</b></div>
       ${kidsDone ? `<div class="full small muted">I tuoi atleti hanno già un posto: puoi prenotare per uno o più adulti.</div>` : ""}
-      ${kidsDone ? "" : pick ? kidPicker(mine, "Chi sale?") + (isAdmin() ? `<label class="full">Altro atleta della squadra (facoltativo)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Alias dell'atleta"><datalist id="dl-${r.id}">${all.filter((n) => !mine.includes(n)).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>` : "") : `<label>Atleta (facoltativo se salgono solo adulti)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Alias dell'atleta"><datalist id="dl-${r.id}">${(conv || isAdmin() ? all : mine).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>`}
-      ${adultsField()}
+      ${kidsDone ? "" : pick ? (isAdmin() ? `<label class="full">Altro atleta della squadra (facoltativo)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Alias dell'atleta"><datalist id="dl-${r.id}">${all.filter((n) => !mine.includes(n)).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>` : "") : `<label>Atleta (facoltativo se salgono solo adulti)<input name="athlete" maxlength="60" list="dl-${r.id}" placeholder="Alias dell'atleta"><datalist id="dl-${r.id}">${(conv || isAdmin() ? all : mine).map((n) => `<option value="${esc(n)}">`).join("")}</datalist></label>`}
+      ${paxCard(pick ? mine : [], "Chi sale?")}
       <label>Dove sale<input name="pickup" maxlength="80" placeholder="Al punto di partenza"></label>
       <div class="actions"><button class="btn-primary" type="submit">${conv ? "Assegna posto" : "Conferma posto"}</button><button class="btn-ghost" type="button" data-act="cancel">Annulla</button></div>
     </form>`;
@@ -2237,6 +2258,14 @@
       "copy-text": () => copy(inviteText()),
       "admin-filter": () => { S.ui.adminFilter = b.dataset.v; renderAdmin(); },
       "admin-csv": () => adminCSV(),
+      "sp-switch": async () => {
+        const want = b.checked; b.disabled = true;
+        const { data, error } = await sb.rpc("set_sponsors_on", { p_on: want });
+        if (error) { b.checked = !want; b.disabled = false; toast("Non riesco a cambiare l'interruttore: " + errMsg(error)); return; }
+        S.sponsorsOn = data === true; S.sponsors = []; S.teamLoadedAt = 0;
+        toast(S.sponsorsOn ? "Banner sponsor acceso per tutte le squadre" : "Banner sponsor spento per tutte le squadre");
+        renderAdmin();
+      },
       "admin-refresh": () => viewAdmin(),
       "sp-goto": () => { spShow(Number(b.dataset.v)); startSponsorRotation(); },
       "src-sel": () => { S.ui.srcSel = S.ui.srcSel === b.dataset.v ? "" : b.dataset.v; S.ui.srcAll = false; renderAdmin(); },

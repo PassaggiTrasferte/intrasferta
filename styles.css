@@ -559,3 +559,29 @@ tfoot td{border-top:2px solid var(--line)}
 .src-tab td:first-child{padding-left:0}
 .src-card > *{min-width:0}
 .src-people li>div:last-child{flex:none;white-space:nowrap}
+
+/* «Chi viaggia?»: riquadro passeggeri (atleti con interruttore, adulti con contatore, totale posti) */
+.pax{display:grid;gap:6px}
+.pax-card{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface)}
+.pax .pax-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-top:1px solid var(--line);margin:0;font-size:1rem;font-weight:400;color:var(--ink);cursor:default}
+.pax .pax-row:first-child{border-top:0}
+.pax label.pax-row{cursor:pointer}
+.pax-av{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:800;background:#E3E8F7;color:#2B3A67;flex:none}
+.pax-av.ad{background:var(--warn-soft);color:var(--warn-text);font-size:1.05rem}
+.pax-t{flex:1;min-width:0;display:grid;line-height:1.25}
+.pax-t b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pax-sw{appearance:none;-webkit-appearance:none;width:46px!important;height:28px!important;min-height:0!important;border-radius:14px;background:var(--line);position:relative;flex:none;padding:0!important;border:0!important;margin:0;cursor:pointer;transition:background .2s}
+.pax-sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.pax-sw:checked{background:var(--accent)}
+.pax-sw:checked::after{left:21px}
+.pax-sw:disabled{opacity:.4;cursor:not-allowed}
+.pax .pax-row.is-off{opacity:.5}
+.pax .stepper{gap:4px}
+.pax .step-btn{width:36px;height:36px;min-height:0!important;min-width:0;flex:none;font-size:1.15rem}
+.pax .step-btn.plus{border-color:var(--accent);color:var(--accent-text)}
+.pax .step-btn:disabled{opacity:.35;cursor:not-allowed}
+.pax-sum{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;background:var(--accent-soft);color:var(--accent-text);font-weight:700}
+.pax-sum b{font-size:1.15rem}
+.pax-sum small{font-weight:600;opacity:.85}
+.pax-sum.over{background:var(--danger-soft);color:var(--danger)}
+@media (prefers-color-scheme: dark){.pax-av{background:#24304A;color:#C7D2FE}}
