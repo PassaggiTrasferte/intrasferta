@@ -1097,9 +1097,17 @@
     </div>`;
   }
 
+  // barra in basso anche aprendo direttamente Profilo o Admin (es. ricarica o link): si carica l'ultima squadra usata
+  async function ensureNavTeam() {
+    if (S.team) return S.team.id;
+    const last = store("it-last-team"); if (!last) return null;
+    try { const ok = await loadTeam(last); if (ok && S.me && S.me.status === "active") return S.team.id; } catch (e) { /* senza barra */ }
+    S.team = null; S.me = null; return null;
+  }
   async function viewProfile(fresh) {
     unsubscribe();
     if (fresh || !S.myTeams) { try { await loadKidsCtx(); } catch (e) { /* mostra il resto del profilo */ } }
+    await ensureNavTeam();
     const navTeam = S.team && S.team.id;
     $app.innerHTML = topBar({ title: "Profilo", back: navTeam ? "" : "#/" }) + `<div class="wrap narrow">
       <form class="card form" data-form="profile-name">
@@ -1169,7 +1177,9 @@
   async function viewAdmin() {
     unsubscribe();
     if (!S.platformAdmin) { location.hash = "#/"; return; }
-    $app.innerHTML = topBar({ title: "Amministrazione", back: "#/profilo" }) + `<div class="wrap"><div class="boot">Calcolo gli indicatori…</div></div>`;
+    const navT = await ensureNavTeam();
+    $app.innerHTML = topBar({ title: "Amministrazione", back: navT ? "" : "#/profilo" }) + `<div class="wrap"><div class="boot">Calcolo gli indicatori…</div></div>` + (navT ? bottomNav(navT, "admin") : "");
+    if (navT) document.body.classList.add("has-bnav");
     const { data, error } = await sb.rpc("admin_stats");
     if (error || !data) { $app.innerHTML = topBar({ title: "Amministrazione", back: "#/profilo" }) + `<div class="wrap"><div class="empty"><strong>Dati non disponibili</strong>${esc(errMsg(error))}</div></div>`; return; }
     S.adminData = data;
