@@ -1,4 +1,4 @@
-# InTrasferta beta · guida alla messa online
+# geniGO beta · guida alla messa online
 
 Tempo: circa 30-40 minuti, una volta sola. Costo: zero (piani gratuiti), più pochi centesimi per ogni calendario letto con l'AI.
 
@@ -28,12 +28,12 @@ Servono due account gratuiti:
 1. **Authentication → Sign In / Providers → Email**: deve essere attivo (lo è di default).
 2. **Authentication → Emails → Templates**: modifica i modelli **Magic Link** e **Confirm signup** così l'email contiene anche il codice a 6 cifre (serve a chi apre la mail su un altro dispositivo o dall'app di posta):
 
-   Oggetto: `Il tuo codice per InTrasferta`
+   Oggetto: `Il tuo codice per geniGO`
 
    ```html
-   <h2>Accedi a InTrasferta</h2>
+   <h2>Accedi a geniGO</h2>
    <p>Il tuo codice: <strong style="font-size:24px">{{ .Token }}</strong></p>
-   <p>Oppure tocca il link: <a href="{{ .ConfirmationURL }}">entra in InTrasferta</a></p>
+   <p>Oppure tocca il link: <a href="{{ .ConfirmationURL }}">entra in geniGO</a></p>
    <p>Se non hai chiesto tu l'accesso, ignora questa email.</p>
    ```
 

@@ -1,5 +1,5 @@
 // =====================================================================
-// InTrasferta · configurazione
+// geniGO · configurazione
 // Copia qui i due valori da Supabase › Project Settings › API.
 // La "anon public key" è pensata per stare nel browser: i dati sono
 // protetti dalle regole di sicurezza del database (schema.sql).
@@ -12,6 +12,6 @@ window.INTRASFERTA_CONFIG = {
   AI_IMPORT_ENABLED: false,
 
   // Testo mostrato nei piè di pagina e nei messaggi di invito
-  APP_NAME: "InTrasferta",
+  APP_NAME: "geniGO",
   SUPPORT_EMAIL: "support@genigo.it"
 };
